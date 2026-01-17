@@ -471,14 +471,14 @@ def build_universal_payload(email_data, routing):
         'currentStatus': routing.get('currentStatus'),
         'withClient': routing.get('withClient'),
         
-        # Sender
+        # Sender (accept both PA names and our names)
         'senderName': email_data.get('senderName', ''),
-        'senderEmail': email_data.get('senderEmail', ''),
-        'allRecipients': email_data.get('allRecipients', []),
+        'senderEmail': email_data.get('from') or email_data.get('senderEmail', ''),
+        'allRecipients': email_data.get('to') or email_data.get('allRecipients', []),
         
-        # Content
-        'subjectLine': email_data.get('subjectLine', ''),
-        'emailContent': email_data.get('emailContent', ''),
+        # Content (accept both PA names and our names)
+        'subjectLine': email_data.get('subject') or email_data.get('subjectLine', ''),
+        'emailContent': email_data.get('body') or email_data.get('emailContent', ''),
         
         # Attachments
         'hasAttachments': email_data.get('hasAttachments', False),
