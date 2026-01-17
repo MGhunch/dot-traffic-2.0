@@ -226,6 +226,20 @@ Return ONLY valid JSON (no markdown, no explanation).
 NOTE: For "confirm", include ALL active jobs for the client (up to 5).
 Copy full job details (stage, status, updateDue, withClient) from the active jobs data provided.
 
+IMPORTANT: If you identify a client but NO active jobs were provided in the input,
+still return the route with the clientCode - the system will fetch the jobs.
+Example: Client is clearly "Labour" but no LAB jobs in the list? Return:
+{
+  "route": "update",
+  "confidence": "medium", 
+  "clientCode": "LAB",
+  "clientName": "Labour",
+  "jobNumber": null,
+  "intent": "Update on Labour job",
+  "reason": "Client identified as Labour, job unclear"
+}
+The system will then fetch LAB jobs and handle the confirmation.
+
 
 --- LOW CONFIDENCE: CLARIFY ---
 {
@@ -237,6 +251,11 @@ Copy full job details (stage, status, updateDue, withClient) from the active job
   "intent": "Best guess at what sender wants" or null,
   "reason": "Why I couldn't identify the client"
 }
+
+CRITICAL: Only use "clarify" with "no_idea" when you truly CANNOT identify the client.
+If you CAN identify the client (even without a jobs list), return the appropriate route
+with the clientCode filled in. The system handles fetching jobs - your job is to identify
+the client and intent.
 
 
 === CLARIFY TYPES ===
