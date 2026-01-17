@@ -170,6 +170,17 @@ def route_email(email_data, active_jobs=None):
         if not client_code:
             client_code = extract_client_code(content)
     
+    # Debug logging
+    print(f"[traffic] === ROUTING DEBUG ===")
+    print(f"[traffic] Subject: {subject}")
+    print(f"[traffic] Sender: {sender_email}")
+    print(f"[traffic] Extracted job_number: {job_number}")
+    print(f"[traffic] Extracted client_code: {client_code}")
+    print(f"[traffic] Active jobs received: {len(active_jobs) if active_jobs else 0}")
+    if active_jobs:
+        for job in active_jobs:
+            print(f"[traffic]   - {job.get('jobNumber')}: {job.get('jobName')}")
+    
     # Format active jobs for prompt
     active_jobs_text = "No active jobs found"
     if active_jobs:
@@ -211,6 +222,16 @@ Message content:
         result_text = response.content[0].text
         result_text = strip_markdown_json(result_text)
         routing = json.loads(result_text)
+        
+        # Debug logging - Claude's decision
+        print(f"[traffic] === CLAUDE DECISION ===")
+        print(f"[traffic] Route: {routing.get('route')}")
+        print(f"[traffic] Confidence: {routing.get('confidence')}")
+        print(f"[traffic] Client: {routing.get('clientCode')} / {routing.get('clientName')}")
+        print(f"[traffic] Job: {routing.get('jobNumber')}")
+        print(f"[traffic] Reason: {routing.get('reason')}")
+        if routing.get('possibleJobs'):
+            print(f"[traffic] Possible jobs: {len(routing.get('possibleJobs'))}")
         
         return routing
         

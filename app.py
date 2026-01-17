@@ -158,6 +158,13 @@ def handle_traffic():
         if client_code:
             active_jobs = airtable.get_active_jobs(client_code)
         
+        # Debug logging
+        print(f"[app] === PRE-ROUTING DEBUG ===")
+        print(f"[app] Subject: {subject}")
+        print(f"[app] Content preview: {content[:200]}..." if len(content) > 200 else f"[app] Content: {content}")
+        print(f"[app] Extracted client_code: {client_code}")
+        print(f"[app] Active jobs fetched: {len(active_jobs)}")
+        
         # ===================
         # STEP 6: CALL CLAUDE FOR ROUTING
         # ===================
