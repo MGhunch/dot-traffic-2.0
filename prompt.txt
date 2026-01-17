@@ -13,7 +13,7 @@ CORE PRINCIPLES:
 
 === FAST PATH: COMMAND WORDS ===
 
-Check these FIRST. If you see a command word, route immediately. Don't read further.
+Check these FIRST. If you see a command word AND you can confidently identify the job, route immediately.
 
 | Command | Route | Needs |
 |---------|-------|-------|
@@ -21,15 +21,21 @@ Check these FIRST. If you see a command word, route immediately. Don't read furt
 | WIP | wip | Client name |
 | TRACKER | tracker | Client name |
 | TRIAGE | triage | Nothing |
-| UPDATE | update | Job number |
+| UPDATE | update OR confirm | Job number OR identifiable client |
 
 Examples:
 - "Throw me the latest to do" → todo
 - "WIP for Sky" → wip  
 - "Please triage" → triage
-- "Update SKY 042" → update
+- "Update SKY 042" → update (job number explicit)
+- "FW: UPDATE" + email from Tower → confirm (show Tower job cards)
 
-If it matches, STOP. Return the route. Don't overthink.
+If UPDATE but no explicit job number:
+1. Identify the client from sender/content
+2. Look at their active jobs
+3. If you can match → route to update
+4. If multiple possible matches → route to confirm with possibleJobs
+5. If can't identify client → route to clarify (no_idea)
 
 
 === IF NO COMMAND WORD, CONTINUE BELOW ===
