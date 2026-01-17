@@ -3,7 +3,10 @@ Dot Traffic 2.0
 Intelligent routing layer for Hunch's agency workflow.
 Receives emails from PA Listener, routes to workers.
 
-No n8n. Traffic does the thinking AND the orchestration.
+REFACTORED: Claude-first approach
+- Let Claude identify client and intent from raw email
+- THEN fetch active jobs and enrich
+- No more dumb regex extraction that confuses Claude
 """
 
 from flask import Flask, request, jsonify
@@ -25,13 +28,14 @@ def health():
     return jsonify({
         'status': 'healthy',
         'service': 'Dot Traffic',
-        'version': '2.0',
-        'architecture': 'standalone',
+        'version': '2.1',
+        'architecture': 'claude-first',
         'features': [
             'deduplication',
             'clarify-loop',
             'universal-payload',
-            'route-registry'
+            'route-registry',
+            'smart-client-detection'
         ]
     })
 
@@ -45,14 +49,16 @@ def handle_traffic():
     """
     Main routing endpoint. Receives email from PA Listener.
     
-    Flow:
+    CLAUDE-FIRST FLOW:
     1. Check for duplicate (already processed)
     2. Check for pending clarify reply
-    3. Get project info and active jobs
-    4. Call Claude for routing
-    5. Log to Traffic table
-    6. Build universal payload
-    7. Call downstream worker or PA Postman
+    3. Call Claude to identify client + intent (no pre-extraction)
+    4. Fetch active jobs for Claude's identified client
+    5. If job-level intent with unclear job → add possibleJobs
+    6. Validate and enrich with project data
+    7. Log to Traffic table
+    8. Build universal payload
+    9. Call downstream worker or PA Postman
     """
     try:
         data = request.get_json()
@@ -68,7 +74,7 @@ def handle_traffic():
         # Extract all email fields (accept PA names: body, subject, from, to, cc)
         subject = data.get('subject') or data.get('subjectLine', '')
         sender_email = data.get('from') or data.get('senderEmail', '')
-        sender_name = data.get('senderName', '')  # PA doesn't send this separately
+        sender_name = data.get('senderName', '')
         all_recipients = data.get('to') or data.get('allRecipients', [])
         has_attachments = data.get('hasAttachments', False)
         attachment_names = data.get('attachmentNames', [])
@@ -83,14 +89,13 @@ def handle_traffic():
         # ===================
         # Only process emails from @hunch.co.nz
         if not sender_email.lower().endswith('@hunch.co.nz'):
-            # Log it but don't process
             airtable.log_traffic(
                 internet_message_id,
                 conversation_id,
                 'external',
                 'ignored',
                 None,
-                None,  # client_code
+                None,
                 sender_email,
                 subject
             )
@@ -128,85 +133,113 @@ def handle_traffic():
                 return jsonify(result)
         
         # ===================
-        # STEP 4: EXTRACT JOB & CLIENT
+        # STEP 4: CLAUDE IDENTIFIES CLIENT + INTENT
         # ===================
-        job_number = traffic.extract_job_number(subject)
-        if not job_number:
-            job_number = traffic.extract_job_number(content)
-        if not job_number and attachment_names:
+        # No pre-extraction! Let Claude read the email naturally.
+        # Only extract job numbers (structured data, regex is fine)
+        job_number_hint = traffic.extract_job_number(subject)
+        if not job_number_hint:
+            job_number_hint = traffic.extract_job_number(content)
+        if not job_number_hint and attachment_names:
             for filename in attachment_names:
-                job_number = traffic.extract_job_number(filename)
-                if job_number:
+                job_number_hint = traffic.extract_job_number(filename)
+                if job_number_hint:
                     break
         
-        client_code = None
-        if job_number:
-            client_code = job_number.split()[0]
-        if not client_code:
-            client_code = traffic.extract_client_code(subject)
-        if not client_code:
-            client_code = traffic.extract_client_code(content)
-        
-        # ===================
-        # STEP 5: GET PROJECT & ACTIVE JOBS
-        # ===================
-        project = None
-        if job_number:
-            project = airtable.get_project(job_number)
-        
-        active_jobs = []
-        if client_code:
-            active_jobs = airtable.get_active_jobs(client_code)
-        
-        # Debug logging
-        print(f"[app] === PRE-ROUTING DEBUG ===")
+        print(f"[app] === CLAUDE-FIRST ROUTING ===")
         print(f"[app] Subject: {subject}")
-        print(f"[app] Content preview: {content[:200]}..." if len(content) > 200 else f"[app] Content: {content}")
-        print(f"[app] Extracted client_code: {client_code}")
-        print(f"[app] Active jobs fetched: {len(active_jobs)}")
+        print(f"[app] Sender: {sender_email}")
+        print(f"[app] Job number hint (regex): {job_number_hint}")
         
-        # ===================
-        # STEP 6: CALL CLAUDE FOR ROUTING
-        # ===================
-        routing = traffic.route_email(data, active_jobs)
+        # First Claude call - identify client and intent
+        routing = traffic.route_email(data)
         
-        # ===================
-        # STEP 7: ENRICH ROUTING WITH PROJECT DATA
-        # ===================
+        print(f"[app] Claude identified client: {routing.get('clientCode')}")
+        print(f"[app] Claude identified intent: {routing.get('route')}")
+        
         if routing.get('route') == 'error':
             return jsonify(routing), 500
         
-        # If we have a validated project, enrich the response
-        final_job_number = routing.get('jobNumber')
+        # ===================
+        # STEP 5: FETCH ACTIVE JOBS FOR CLAUDE'S CLIENT
+        # ===================
+        client_code = routing.get('clientCode')
+        active_jobs = []
         
-        if project and final_job_number == job_number:
-            routing['jobName'] = project['jobName']
-            routing['clientName'] = project['clientName']
-            routing['projectRecordId'] = project['recordId']
-            routing['teamsChannelId'] = project['teamsChannelId']
-            routing['teamId'] = project['teamId']
-            routing['currentStage'] = project['stage']
-            routing['currentStatus'] = project['status']
-            routing['withClient'] = project['withClient']
+        if client_code:
+            active_jobs = airtable.get_active_jobs(client_code)
+            print(f"[app] Fetched {len(active_jobs)} active jobs for {client_code}")
         
-        # If Claude picked a different job, validate it
-        elif final_job_number and final_job_number != job_number:
-            matched_project = airtable.get_project(final_job_number)
-            if matched_project:
-                routing['jobName'] = matched_project['jobName']
-                routing['clientName'] = matched_project['clientName']
-                routing['projectRecordId'] = matched_project['recordId']
-                routing['teamsChannelId'] = matched_project['teamsChannelId']
-                routing['teamId'] = matched_project['teamId']
-                routing['currentStage'] = matched_project['stage']
-                routing['currentStatus'] = matched_project['status']
-                routing['withClient'] = matched_project['withClient']
-            else:
-                # Job not found - switch to clarify
+        # ===================
+        # STEP 6: HANDLE JOB-LEVEL INTENTS
+        # ===================
+        # If Claude identified a job-level intent but no specific job,
+        # we need to show options (confirm) or validate the job
+        
+        job_level_intents = ['update', 'file', 'feedback', 'work-to-client']
+        
+        if routing.get('route') in job_level_intents:
+            job_number = routing.get('jobNumber')
+            
+            if job_number:
+                # Claude identified a specific job - validate it
+                project = airtable.get_project(job_number)
+                if project:
+                    # Valid job - enrich routing
+                    routing = enrich_with_project(routing, project)
+                    print(f"[app] Validated job: {job_number}")
+                else:
+                    # Job not found
+                    routing['route'] = 'clarify'
+                    routing['confidence'] = 'low'
+                    routing['clarifyType'] = 'job_not_found'
+                    routing['reason'] = f"Job {job_number} not found in system"
+                    print(f"[app] Job not found: {job_number}")
+            
+            elif active_jobs:
+                # No specific job but we have options - confirm with list
+                if len(active_jobs) == 1:
+                    # Only one job - assume it's the one
+                    project = airtable.get_project(active_jobs[0]['jobNumber'])
+                    if project:
+                        routing['jobNumber'] = active_jobs[0]['jobNumber']
+                        routing['confidence'] = 'high'
+                        routing['reason'] = f"Only one active {client_code} job"
+                        routing = enrich_with_project(routing, project)
+                        print(f"[app] Single job match: {active_jobs[0]['jobNumber']}")
+                else:
+                    # Multiple jobs - need to confirm
+                    routing['route'] = 'confirm'
+                    routing['confidence'] = 'medium'
+                    routing['clarifyType'] = 'confirm'
+                    routing['possibleJobs'] = active_jobs[:5]  # Max 5
+                    routing['originalIntent'] = routing.get('route', 'update')
+                    print(f"[app] Multiple jobs - confirming with {len(active_jobs)} options")
+            
+            elif not client_code:
+                # No client, no job - truly no idea
                 routing['route'] = 'clarify'
                 routing['confidence'] = 'low'
-                routing['clarifyType'] = 'job_not_found'
-                routing['reason'] = f"Job {final_job_number} not found in system"
+                routing['clarifyType'] = 'no_idea'
+                print(f"[app] No client identified - clarifying")
+        
+        # ===================
+        # STEP 7: VALIDATE CLIENT-LEVEL ROUTES
+        # ===================
+        client_level_intents = ['wip', 'tracker', 'incoming', 'triage']
+        
+        if routing.get('route') in client_level_intents:
+            if not client_code:
+                routing['route'] = 'clarify'
+                routing['confidence'] = 'low'
+                routing['clarifyType'] = 'no_idea'
+                routing['reason'] = 'Could not identify client for this request'
+                print(f"[app] Client-level intent but no client - clarifying")
+            else:
+                # Get client name for enrichment
+                client_name = airtable.get_client_name(client_code)
+                if client_name:
+                    routing['clientName'] = client_name
         
         # ===================
         # STEP 8: LOG TO TRAFFIC TABLE
@@ -254,6 +287,7 @@ def handle_traffic():
             'reason': routing.get('reason', ''),
             'jobNumber': routing.get('jobNumber'),
             'clientCode': routing.get('clientCode'),
+            'clientName': routing.get('clientName'),
             'intent': routing.get('intent'),
             'worker': worker_result,
             'payload': payload
@@ -261,10 +295,29 @@ def handle_traffic():
         
     except Exception as e:
         print(f"[app] Error in /traffic: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'error': 'Internal server error',
             'details': str(e)
         }), 500
+
+
+# ===================
+# HELPER: ENRICH WITH PROJECT DATA
+# ===================
+
+def enrich_with_project(routing, project):
+    """Add project data to routing dict"""
+    routing['jobName'] = project['jobName']
+    routing['clientName'] = project['clientName']
+    routing['projectRecordId'] = project['recordId']
+    routing['teamsChannelId'] = project['teamsChannelId']
+    routing['teamId'] = project['teamId']
+    routing['currentStage'] = project['stage']
+    routing['currentStatus'] = project['status']
+    routing['withClient'] = project['withClient']
+    return routing
 
 
 # ===================
@@ -277,13 +330,12 @@ def handle_clarify_reply(data, pending_clarify):
     
     Returns routing dict if handled, None to continue normal processing.
     """
-    content = data.get('emailContent', '').strip()
-    subject = data.get('subjectLine', '')
-    sender_email = data.get('senderEmail', '')
+    content = (data.get('body') or data.get('emailContent', '')).strip()
+    subject = data.get('subject') or data.get('subjectLine', '')
+    sender_email = data.get('from') or data.get('senderEmail', '')
     sender_name = data.get('senderName', '')
     internet_message_id = data.get('internetMessageId', '')
     conversation_id = data.get('conversationId', '')
-    source = data.get('source', 'email')
     
     pending_fields = pending_clarify['fields']
     
@@ -347,17 +399,10 @@ def handle_clarify_reply(data, pending_clarify):
                 'route': 'update',
                 'confidence': 'high',
                 'jobNumber': reply_job_number,
-                'jobName': project['jobName'],
-                'clientName': project['clientName'],
-                'clientCode': reply_job_number.split()[0],
-                'projectRecordId': project['recordId'],
-                'teamsChannelId': project['teamsChannelId'],
-                'teamId': project['teamId'],
-                'currentStage': project['stage'],
-                'currentStatus': project['status'],
-                'withClient': project['withClient'],
                 'reason': 'Job number provided in clarify reply'
             }
+            routing = enrich_with_project(routing, project)
+            routing['clientCode'] = reply_job_number.split()[0]
             
             payload = build_universal_payload(data, routing)
             worker_result = connect.call_worker('update', payload)
@@ -415,17 +460,10 @@ def handle_clarify_reply(data, pending_clarify):
                     'route': 'update',
                     'confidence': 'high',
                     'jobNumber': suggested_job,
-                    'jobName': project['jobName'],
-                    'clientName': project['clientName'],
-                    'clientCode': suggested_job.split()[0],
-                    'projectRecordId': project['recordId'],
-                    'teamsChannelId': project['teamsChannelId'],
-                    'teamId': project['teamId'],
-                    'currentStage': project['stage'],
-                    'currentStatus': project['status'],
-                    'withClient': project['withClient'],
                     'reason': 'User confirmed suggested job'
                 }
+                routing = enrich_with_project(routing, project)
+                routing['clientCode'] = suggested_job.split()[0]
                 
                 payload = build_universal_payload(data, routing)
                 worker_result = connect.call_worker('update', payload)
