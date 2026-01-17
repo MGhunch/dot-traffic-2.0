@@ -60,15 +60,16 @@ def handle_traffic():
         # ===================
         # VALIDATE INPUT
         # ===================
-        content = data.get('emailContent', '')
+        # Accept both our names and PA's names for flexibility
+        content = data.get('body') or data.get('emailContent', '')
         if not content:
-            return jsonify({'error': 'No emailContent provided'}), 400
+            return jsonify({'error': 'No email body provided'}), 400
         
-        # Extract all email fields
-        subject = data.get('subjectLine', '')
-        sender_email = data.get('senderEmail', '')
-        sender_name = data.get('senderName', '')
-        all_recipients = data.get('allRecipients', [])
+        # Extract all email fields (accept PA names: body, subject, from, to, cc)
+        subject = data.get('subject') or data.get('subjectLine', '')
+        sender_email = data.get('from') or data.get('senderEmail', '')
+        sender_name = data.get('senderName', '')  # PA doesn't send this separately
+        all_recipients = data.get('to') or data.get('allRecipients', [])
         has_attachments = data.get('hasAttachments', False)
         attachment_names = data.get('attachmentNames', [])
         attachment_list = data.get('attachmentList', [])
