@@ -85,8 +85,17 @@ def handle_traffic():
         received_datetime = data.get('receivedDateTime', '')
         
         # ===================
-        # STEP 1: CHECK SENDER DOMAIN
+        # STEP 1: CHECK SENDER
         # ===================
+        # Ignore emails FROM dot@ (prevents email loops)
+        if sender_email.lower() == 'dot@hunch.co.nz':
+            return jsonify({
+                'route': 'self',
+                'status': 'ignored',
+                'reason': 'Ignoring email from Dot to prevent loops',
+                'senderEmail': sender_email
+            })
+        
         # Only process emails from @hunch.co.nz
         if not sender_email.lower().endswith('@hunch.co.nz'):
             airtable.log_traffic(
