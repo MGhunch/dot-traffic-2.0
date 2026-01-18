@@ -377,17 +377,12 @@ def send_confirmation(to_email, route, client_name=None, job_number=None, subjec
         context_parts.append(job_number)
     context_line = ' | '.join(context_parts) if context_parts else ''
     
-    # Build files link if available
-    files_link = ''
-    if files_url:
-        files_link = f'<p><a href="{files_url}">Get the files</a></p>'
-    
     # Build email body
     body_html = f"""
-<p>All sorted - {friendly_text.lower()}.</p>
-{f'<p><strong>{context_line}</strong></p>' if context_line else ''}
-{files_link}
-<p>Dot</p>
+<p style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; margin: 0 0 16px 0;">All sorted - {friendly_text.lower()}.</p>
+{f'<p style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; margin: 0 0 16px 0;"><strong>{context_line}</strong></p>' if context_line else ''}
+{f'<p style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; margin: 0 0 16px 0;"><a href="{files_url}" style="color: #ED1C24;">Get the files</a></p>' if files_url else ''}
+<p style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; margin: 0;">Dot</p>
 """
     
     subject = f"Re: {subject_line}" if subject_line else "Dot - Done"
@@ -466,11 +461,11 @@ def send_failure(to_email, route, error_message, subject_line=None, job_number=N
     
     # Build email body with your copy
     body_html = f"""
-<p>Sorry, I got in a muddle over that one. Couldn't do it.</p>
-{f'<p><strong>{context_line}</strong></p>' if context_line else ''}
-<p>Here's what I told myself in Dot Language:</p>
-<pre style="background: #f5f5f5; padding: 12px; border-radius: 4px; font-size: 13px; overflow-x: auto;">{error_message}</pre>
-<p>Dot</p>
+<p style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; margin: 0 0 16px 0;">Sorry, I got in a muddle over that one. Couldn't do it.</p>
+{f'<p style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; margin: 0 0 16px 0;"><strong>{context_line}</strong></p>' if context_line else ''}
+<p style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; margin: 0 0 8px 0;">Here's what I told myself in Dot Language:</p>
+<pre style="font-family: Consolas, Monaco, monospace; font-size: 13px; line-height: 1.4; background: #f5f5f5; padding: 12px; border-radius: 4px; overflow-x: auto; margin: 0 0 16px 0;">{error_message}</pre>
+<p style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; margin: 0;">Dot</p>
 """
     
     subject = f"Did not compute: {subject_line}" if subject_line else "Did not compute"
