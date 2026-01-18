@@ -21,7 +21,7 @@ TIMEOUT = 30.0
 
 ROUTES = {
     "file": {
-        "endpoint": "https://dot-file.up.railway.app/process",
+        "endpoint": "https://dot-file.up.railway.app/file",
         "status": "testing",  # live | testing | not_built
     },
     "update": {

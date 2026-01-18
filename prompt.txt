@@ -102,9 +102,9 @@ UPDATE - Log progress or change status
 - Example: "Update on the Labour speech - with us for review"
 
 FILE - Store/archive something
-- Trigger words: "file this", "archive", "for records"
+- Trigger words: "file this", "archive", "for records", "job bag", "put this in", "save this to"
 - Usually: Final versions, signed documents, reference material
-- Example: "Please file this - signed off final"
+- Example: "Please file this - signed off final", "Whack this in the job bag for ONE 123"
 
 FEEDBACK - Client returning marked-up work
 - Indicators: Client sender, attached PDF/doc with comments

@@ -279,6 +279,19 @@ def handle_traffic():
         worker_result = connect.call_worker(route, payload)
         
         # ===================
+        # STEP 12: SEND CONFIRMATION EMAIL
+        # ===================
+        confirmation_result = None
+        if worker_result.get('success'):
+            confirmation_result = connect.send_confirmation(
+                to_email=sender_email,
+                route=route,
+                client_name=routing.get('clientName'),
+                job_number=routing.get('jobNumber'),
+                subject_line=subject
+            )
+        
+        # ===================
         # RETURN RESPONSE
         # ===================
         return jsonify({
@@ -290,6 +303,7 @@ def handle_traffic():
             'clientName': routing.get('clientName'),
             'intent': routing.get('intent'),
             'worker': worker_result,
+            'confirmation': confirmation_result,
             'payload': payload
         })
         
