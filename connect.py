@@ -20,7 +20,7 @@ TIMEOUT = 30.0
 LOGO_URL = "https://raw.githubusercontent.com/MGhunch/dot-hub/main/images/ai2-logo.png"
 
 # Hub base URL
-HUB_URL = "https://dot-hub.up.railway.app"
+HUB_URL = "https://dot.hunch.co.nz"
 
 
 # ===================
