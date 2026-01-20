@@ -14,7 +14,7 @@ CORE PRINCIPLES:
 === KNOWLEDGE HIERARCHY ===
 
 LEVEL 0: No client identified -> Very limited (only TODO works)
-LEVEL 1: Client known -> Unlocks most functions (WIP, TRACKER, INCOMING, TRIAGE)
+LEVEL 1: Client known -> Unlocks most functions (WIP, TRACKER, NEW-JOB, TRIAGE)
 LEVEL 2: Client + Job known -> Unlocks job-specific actions (UPDATE, FILE, FEEDBACK, WORK-TO-CLIENT)
 
 This hierarchy drives everything. Identify client first, then determine what they want.
@@ -83,8 +83,8 @@ TRACKER - Finance/tracker report
 - Needs: Client name
 - Example: "Tracker for Sky please", "Tower finance report"
 
-INCOMING - Log a potential job (lightweight, no Teams setup)
-- Trigger words: "incoming", "upcoming", "on the radar", "heads up", "might be coming"
+NEW-JOB - Log a potential job (lightweight, no Teams setup)
+- Trigger words: "new job", "on the radar", "heads up", "might be coming"
 - Creates: Airtable record + Tracker entry only
 - Example: "Heads up - Sky might have a new campaign coming"
 
@@ -139,7 +139,7 @@ KEYWORD MATCHING:
 
 --- HIGH CONFIDENCE: Route directly ---
 
-For CLIENT-LEVEL functions (TODO, WIP, TRACKER, INCOMING, TRIAGE):
+For CLIENT-LEVEL functions (TODO, WIP, TRACKER, NEW-JOB, TRIAGE):
 - Client identified (or TODO which needs no client) -> route directly
 
 For JOB-LEVEL functions:
@@ -177,7 +177,7 @@ If you see a command word AND can identify the client (where needed), route imme
 | TODO / TO DO | todo | Nothing |
 | WIP | wip | Client |
 | TRACKER | tracker | Client |
-| INCOMING | incoming | Client |
+| NEW JOB | new-job | Client |
 | TRIAGE | triage | Client |
 | UPDATE | update OR confirm | Client + Job (or show options) |
 
@@ -197,7 +197,7 @@ Return ONLY valid JSON (no markdown, no explanation).
 
 --- HIGH CONFIDENCE: ROUTE DIRECTLY ---
 {
-  "route": "todo|wip|tracker|incoming|triage|update|file|feedback|work-to-client",
+  "route": "todo|wip|tracker|new-job|triage|update|file|feedback|work-to-client",
   "confidence": "high",
   "jobNumber": "ONE 125" or null,
   "clientCode": "ONE" or null,
@@ -341,15 +341,15 @@ Attachments: Sky_Brief_Summer2025.pdf
 }
 
 
-EXAMPLE 4: INCOMING - heads up about potential work
+EXAMPLE 4: NEW-JOB - heads up about potential work
 
 Email from: michael@hunch.co.nz
 Subject: Heads up - Tower
 Body: Just had a call with Tower. They might have a new campaign coming in Feb. On the radar.
 
--> Route: incoming
+-> Route: new-job
 {
-  "route": "incoming",
+  "route": "new-job",
   "confidence": "high",
   "jobNumber": null,
   "clientCode": "TOW",

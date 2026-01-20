@@ -77,7 +77,7 @@ LEVEL 0: No client identified
   -> Can't do: Most things (need to know who)
 
 LEVEL 1: Client known
-  -> Unlocks: WIP, TRACKER, INCOMING, TRIAGE, lookups
+  -> Unlocks: WIP, TRACKER, NEW-JOB, TRIAGE, lookups
 
 LEVEL 2: Client + Job known
   -> Unlocks: UPDATE, FILE, FEEDBACK, WORK-TO-CLIENT
@@ -130,10 +130,10 @@ TRACKER - Finance/spend report
   Needs: Client
   Route: tracker
 
-INCOMING - Log potential job (lightweight)
-  Trigger: "incoming", "heads up", "on the radar"
+NEW-JOB - Log potential job (lightweight)
+  Trigger: "new job", "heads up", "on the radar"
   Needs: Client
-  Route: incoming
+  Route: new-job
 
 TRIAGE - Full new job setup
   Trigger: "triage", "new brief", "new project", "set this up"
@@ -162,6 +162,11 @@ WORK-TO-CLIENT - Sending deliverables to client
 
 
 === TOOLS (For Answering Questions) ===
+
+get_active_jobs - Get all active jobs for a client
+  "Update the Tower job" -> fetch Tower jobs, find the match
+  "What's happening with Sky?" -> fetch Sky jobs to answer
+  USE THIS when you know the client but need to find/confirm a job
 
 search_people - Find contacts, emails, phone numbers
   "What's Sarah's email at Tower?"
@@ -200,18 +205,23 @@ Say something like:
 
 For job-level actions (UPDATE, FILE), you need to identify which job.
 
-Check in order:
-1. Job number in attachment filenames (e.g., "LAB 055 - Speech v2.pdf")
-2. Job number in subject line
-3. Job number in message body
-4. Keyword match against active jobs list
+THE FLOW:
+1. Identify the client from the message
+2. Call get_active_jobs(client_code) to see what's live
+3. Match the request to a specific job (by number or keyword)
+4. Make your decision with full context
+
+MATCHING:
+- Exact job number in message (LAB 055) -> direct match
+- Exact job number in attachment filename -> direct match
+- Keyword match ("the waterfall job" -> "SKY 042 - Paint the Waterfall")
+- Only ONE active job for client -> use it (high confidence)
+- Multiple possible matches -> return "confirm" with options
 
 Job number pattern: Three letters + space + three digits (LAB 055, SKY 042)
 Also match underscore variant: LAB_055
 
-If client is known but job unclear:
-- If only ONE active job for client -> use it (high confidence)
-- If multiple jobs -> return "confirm" with all active jobs
+IMPORTANT: Don't guess. If you can't confidently match, show options.
 
 
 === RESPONSE FORMAT ===
@@ -324,9 +334,9 @@ When you're stuck and need more info
 
 1. Identify client FIRST - this unlocks everything
 2. TODO is the only action that doesn't need a client
-3. If client known but job unclear -> confirm with their active jobs
+3. For job-level actions, call get_active_jobs() to find/confirm the job
 4. Job number in filename beats job number in body
-5. Never invent a job number
+5. Never invent a job number - use the tool to find real ones
 6. @hunch.co.nz senders are internal - look for the real client in content
 7. Keep "reason" under 25 words (it's for logging, not the user)
 8. "clarify" with "no_idea" should be RARE - only when truly stuck

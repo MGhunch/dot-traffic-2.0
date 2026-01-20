@@ -43,10 +43,10 @@ ROUTES = {
         "status": "not_built",
         "friendly_name": "Triage",
     },
-    "incoming": {
-        "endpoint": "https://dot-incoming.up.railway.app/process",
+    "new-job": {
+        "endpoint": "https://dot-new-job.up.railway.app/process",
         "status": "not_built",
-        "friendly_name": "Incoming",
+        "friendly_name": "New Job",
     },
     "wip": {
         "endpoint": "https://dot-wip.up.railway.app/process",
@@ -130,7 +130,7 @@ def _success_box(title, subtitle):
         <tr>
           <td width="28" style="vertical-align: top; padding-right: 12px;">
             <div style="width: 24px; height: 24px; background: #22c55e; border-radius: 50%; text-align: center; line-height: 24px;">
-              <span style="color: white; font-size: 14px;">✓</span>
+              <span style="color: white; font-size: 14px;">âœ“</span>
             </div>
           </td>
           <td style="vertical-align: top;">
@@ -153,7 +153,7 @@ def _failure_box(title, subtitle):
         <tr>
           <td width="28" style="vertical-align: top; padding-right: 12px;">
             <div style="width: 24px; height: 24px; background: #ef4444; border-radius: 50%; text-align: center; line-height: 24px;">
-              <span style="color: white; font-size: 14px;">✕</span>
+              <span style="color: white; font-size: 14px;">âœ•</span>
             </div>
           </td>
           <td style="vertical-align: top;">
@@ -447,7 +447,7 @@ ROUTE_FRIENDLY_TEXT = {
     'file': 'Files filed',
     'update': 'Job updated',
     'triage': 'Job triaged',
-    'incoming': 'Incoming job logged',
+    'new-job': 'New job logged',
     'feedback': 'Feedback logged',
     'work-to-client': 'Work sent to client logged',
 }
@@ -456,7 +456,7 @@ ROUTE_SUBTITLE = {
     'file': 'Filed to {destination}',
     'update': 'Status updated',
     'triage': 'New job created',
-    'incoming': 'Added to pipeline',
+    'new-job': 'Added to pipeline',
     'feedback': 'Feedback recorded',
     'work-to-client': 'Delivery logged',
 }
@@ -508,7 +508,7 @@ def send_confirmation(to_email, route, sender_name=None, client_name=None, job_n
     # Build files link if available
     files_link = ''
     if files_url:
-        files_link = f'<p style="margin: 0 0 24px 0;"><a href="{files_url}" style="color: #ED1C24; text-decoration: none; font-weight: 500;">See the files →</a></p>'
+        files_link = f'<p style="margin: 0 0 24px 0;"><a href="{files_url}" style="color: #ED1C24; text-decoration: none; font-weight: 500;">See the files â†’</a></p>'
     
     # Build email content
     content = f"""<p style="margin: 0 0 20px 0;">Hey {first_name},</p>
@@ -608,7 +608,7 @@ def send_failure(to_email, route, error_message, sender_name=None, subject_line=
         'file': "Couldn't file attachments",
         'update': "Couldn't update job",
         'triage': "Couldn't create job",
-        'incoming': "Couldn't log incoming",
+        'new-job': "Couldn't log new job",
         'feedback': "Couldn't log feedback",
         'work-to-client': "Couldn't log delivery",
     }
@@ -781,10 +781,10 @@ def send_redirect(to_email, message, sender_name=None, subject_line=None,
     # Choose message based on redirect type
     if redirect_to_lower == 'tracker':
         default_message = "Gosh, that's getting into more detail than I'm good at. You should find everything you need in the Tracker."
-        link_text = f"Open Tracker for {display_name} →" if display_name else "Open Tracker →"
+        link_text = f"Open Tracker for {display_name} â†’" if display_name else "Open Tracker â†’"
     else:
         default_message = "That's getting into the detail more than I'm good at. You should find everything you need in the WIP."
-        link_text = f"Open {display_name} WIP →" if display_name else "Open WIP →"
+        link_text = f"Open {display_name} WIP â†’" if display_name else "Open WIP â†’"
     
     # Use provided message or default
     display_message = message if message else default_message
@@ -860,13 +860,22 @@ def send_not_built(to_email, route, sender_name=None, subject_line=None):
     """
     first_name = _get_first_name(sender_name)
     
-    # Get friendly name for the route
+    # Route-specific messages
+    route_messages = {
+        'update': f"Still working on updates. You can update jobs in the Hub for now. <a href=\"{HUB_URL}\" style=\"color: #ED1C24;\">Open Hub →</a>",
+        'triage': "Triage isn't ready yet. Watch this space.",
+        'todo': f"To-do lists coming soon. Check the WIP in the Hub for now. <a href=\"{HUB_URL}/?view=wip\" style=\"color: #ED1C24;\">Open WIP →</a>",
+        'new-job': "Not set up for new jobs yet. Better to email a human.",
+    }
+    
+    # Get route-specific message or generic fallback
     route_config = ROUTES.get(route, {})
     friendly_name = route_config.get('friendly_name', route.title())
+    message = route_messages.get(route, f"Sorry, we're still working on <strong>{friendly_name}</strong>. Hoping to have it up and running soon.")
     
     # Build email content
     content = f"""<p style="margin: 0 0 20px 0;">Hey {first_name},</p>
-<p style="margin: 0 0 20px 0;">Sorry, we're still working on <strong>{friendly_name}</strong>. Hoping to have it up and running soon.</p>
+<p style="margin: 0 0 20px 0;">{message}</p>
 <p style="margin: 0;">Dot</p>"""
     
     body_html = _email_wrapper(content)

@@ -3,8 +3,8 @@ Dot Traffic - Unified Brain
 Routes requests, answers questions, calls workers.
 
 UNIFIED: Handles both email and hub sources.
-- Email: PA Listener Ã¢â€ â€™ /traffic Ã¢â€ â€™ workers
-- Hub: Ask Dot Ã¢â€ â€™ /traffic Ã¢â€ â€™ response
+- Email: PA Listener ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ /traffic ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ workers
+- Hub: Ask Dot ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ /traffic ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ response
 
 One brain. Two inputs. Same Dot.
 """
@@ -427,6 +427,20 @@ CLAUDE_TOOLS = [
             },
             "required": ["client_code"]
         }
+    },
+    {
+        "name": "get_active_jobs",
+        "description": "Get all active (non-completed) jobs for a client. Use this when you know the client but need to find or confirm which job. Returns job numbers, names, descriptions, stage, status, and due dates.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "client_code": {
+                    "type": "string",
+                    "description": "The client code (e.g., 'SKY', 'TOW', 'LAB')"
+                }
+            },
+            "required": ["client_code"]
+        }
     }
 ]
 
@@ -449,6 +463,11 @@ def execute_tool(tool_name, tool_input):
         )
     elif tool_name == "reserve_job_number":
         result = tool_reserve_job_number(tool_input.get('client_code'))
+    elif tool_name == "get_active_jobs":
+        # Import here to avoid circular import
+        import airtable
+        jobs = airtable.get_active_jobs(tool_input.get('client_code'))
+        result = {'jobs': jobs, 'count': len(jobs)}
     else:
         result = {'error': f'Unknown tool: {tool_name}'}
     
@@ -700,34 +719,3 @@ Email content:
             'reason': 'Error calling Claude',
             'error': str(e)
         }
-
-
-# ===================
-# LEGACY COMPATIBILITY
-# ===================
-
-def route_email(email_data, active_jobs=None):
-    """
-    Legacy function for backwards compatibility.
-    Wraps route_request with email defaults.
-    """
-    if 'source' not in email_data:
-        email_data['source'] = 'email'  # Only default if not set
-    result = route_request(email_data, active_jobs)
-    
-    # Map new response format to old format for backwards compatibility
-    if result.get('type') == 'action':
-        result['route'] = result.get('route')
-    elif result.get('type') == 'confirm':
-        result['route'] = 'confirm'
-        result['clarifyType'] = 'confirm'
-        result['possibleJobs'] = result.get('jobs', [])
-    elif result.get('type') == 'clarify':
-        result['route'] = 'clarify'
-    elif result.get('type') == 'redirect':
-        result['route'] = 'redirect'
-    elif result.get('type') == 'answer':
-        # Answers don't route anywhere for email - just respond
-        result['route'] = 'answer'
-    
-    return result
