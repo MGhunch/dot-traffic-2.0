@@ -10,11 +10,13 @@ REFACTORED: Claude-first approach
 """
 
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import airtable
 import traffic
 import connect
 
 app = Flask(__name__)
+CORS(app)
 
 
 # ===================
