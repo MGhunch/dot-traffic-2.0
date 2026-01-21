@@ -252,14 +252,39 @@ def get_active_jobs(client_code):
         jobs = []
         for record in records:
             fields = record.get('fields', {})
+            job_number = fields.get('Job Number', '')
+            
+            # Parse update summary to get latest update text and date
+            update_summary = fields.get('Update history', [])
+            latest_update = ''
+            last_updated = None
+            update_history = []
+            
+            if update_summary and isinstance(update_summary, list):
+                update_history = update_summary[:5]  # Keep last 5 for history
+                if update_summary:
+                    # Format is "14 Jun | Update text here"
+                    first_update = update_summary[0]
+                    if ' | ' in first_update:
+                        date_part, text_part = first_update.split(' | ', 1)
+                        latest_update = text_part
+                        last_updated = date_part
+                    else:
+                        latest_update = first_update
+            
             jobs.append({
-                'jobNumber': fields.get('Job Number', ''),
+                'jobNumber': job_number,
                 'jobName': fields.get('Project Name', ''),
                 'description': fields.get('Description', ''),
                 'stage': fields.get('Stage', ''),
                 'status': fields.get('Status', ''),
                 'updateDue': fields.get('Update due friendly', ''),
                 'withClient': fields.get('With Client?', False),
+                'clientCode': job_number.split()[0] if job_number else '',
+                'update': latest_update,
+                'lastUpdated': last_updated,
+                'updateHistory': update_history,
+                'liveDate': fields.get('Live Date', ''),
             })
         
         return jobs
@@ -300,14 +325,39 @@ def get_all_active_jobs():
         jobs = []
         for record in records:
             fields = record.get('fields', {})
+            job_number = fields.get('Job Number', '')
+            
+            # Parse update summary to get latest update text and date
+            update_summary = fields.get('Update history', [])
+            latest_update = ''
+            last_updated = None
+            update_history = []
+            
+            if update_summary and isinstance(update_summary, list):
+                update_history = update_summary[:5]  # Keep last 5 for history
+                if update_summary:
+                    # Format is "14 Jun | Update text here"
+                    first_update = update_summary[0]
+                    if ' | ' in first_update:
+                        date_part, text_part = first_update.split(' | ', 1)
+                        latest_update = text_part
+                        last_updated = date_part
+                    else:
+                        latest_update = first_update
+            
             jobs.append({
-                'jobNumber': fields.get('Job Number', ''),
+                'jobNumber': job_number,
                 'jobName': fields.get('Project Name', ''),
                 'description': fields.get('Description', ''),
                 'stage': fields.get('Stage', ''),
                 'status': fields.get('Status', ''),
                 'updateDue': fields.get('Update due friendly', ''),
                 'withClient': fields.get('With Client?', False),
+                'clientCode': job_number.split()[0] if job_number else '',
+                'update': latest_update,
+                'lastUpdated': last_updated,
+                'updateHistory': update_history,
+                'liveDate': fields.get('Live Date', ''),
             })
         
         return jobs
@@ -353,6 +403,24 @@ def get_job_by_number(job_number):
         
         fields = records[0].get('fields', {})
         
+        # Parse update summary to get latest update text and date
+        update_summary = fields.get('Update history', [])
+        latest_update = ''
+        last_updated = None
+        update_history = []
+        
+        if update_summary and isinstance(update_summary, list):
+            update_history = update_summary[:5]  # Keep last 5 for history
+            if update_summary:
+                # Format is "14 Jun | Update text here"
+                first_update = update_summary[0]
+                if ' | ' in first_update:
+                    date_part, text_part = first_update.split(' | ', 1)
+                    latest_update = text_part
+                    last_updated = date_part
+                else:
+                    latest_update = first_update
+        
         return {
             'jobNumber': fields.get('Job Number', ''),
             'jobName': fields.get('Project Name', ''),
@@ -362,6 +430,10 @@ def get_job_by_number(job_number):
             'updateDue': fields.get('Update due friendly', ''),
             'withClient': fields.get('With Client?', False),
             'clientCode': job_number.split()[0] if job_number else '',
+            'update': latest_update,
+            'lastUpdated': last_updated,
+            'updateHistory': update_history,
+            'liveDate': fields.get('Live Date', ''),
         }
         
     except Exception as e:
