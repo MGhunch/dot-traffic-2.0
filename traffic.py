@@ -666,6 +666,7 @@ Email content:
                 max_tokens=1500,
                 temperature=0.1,
                 system=TRAFFIC_PROMPT,
+                tools=CLAUDE_TOOLS,
                 messages=messages
             )
             content_blocks = response.content
