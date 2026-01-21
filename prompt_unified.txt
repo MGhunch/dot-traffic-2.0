@@ -255,7 +255,9 @@ When you can answer directly (simple question, tool lookup)
 
 
 --- TYPE: answer with jobs ---
-When returning job cards to display
+When returning job cards to display.
+IMPORTANT: Pass through the FULL job objects from get_active_jobs or get_all_active_jobs.
+Don't strip fields - the frontend needs all of them for the card display.
 
 {
   "type": "answer",
@@ -265,8 +267,20 @@ When returning job cards to display
   "clientName": null,
   "jobNumber": null,
   "jobs": [
-    {"jobNumber": "LAB 055", "jobName": "Election 26", "stage": "Craft", "status": "In Progress", "updateDue": "2026-01-22", "withClient": false},
-    {"jobNumber": "SKY 042", "jobName": "Summer Campaign", "stage": "Refine", "status": "In Progress", "updateDue": "2026-01-23", "withClient": true}
+    {
+      "jobNumber": "LAB 055",
+      "jobName": "Election 26",
+      "clientCode": "LAB",
+      "stage": "Craft",
+      "status": "In Progress",
+      "updateDue": "2026-01-22",
+      "liveDate": "2026-02-15",
+      "withClient": false,
+      "description": "Election campaign materials",
+      "update": "First draft complete",
+      "lastUpdated": "20 Jan",
+      "updateHistory": ["20 Jan | First draft complete", "18 Jan | Kicked off"]
+    }
   ],
   "nextPrompt": "Want me to filter by client?",
   "reason": "Job query - due this week"
@@ -289,7 +303,8 @@ When routing to a worker
 
 
 --- TYPE: confirm ---
-When client is known but job is unclear
+When client is known but job is unclear.
+Pass through full job objects from get_active_jobs - don't strip fields.
 
 {
   "type": "confirm",
@@ -300,8 +315,34 @@ When client is known but job is unclear
   "jobNumber": null,
   "originalIntent": "update",
   "jobs": [
-    {"jobNumber": "LAB 055", "jobName": "Election 26", "stage": "Craft", "status": "In Progress", "updateDue": "2026-01-22", "withClient": false},
-    {"jobNumber": "LAB 056", "jobName": "Speech Writing", "stage": "Refine", "status": "In Progress", "updateDue": "2026-01-24", "withClient": true}
+    {
+      "jobNumber": "LAB 055",
+      "jobName": "Election 26",
+      "clientCode": "LAB",
+      "stage": "Craft",
+      "status": "In Progress",
+      "updateDue": "2026-01-22",
+      "liveDate": "2026-02-15",
+      "withClient": false,
+      "description": "Election campaign materials",
+      "update": "First draft complete",
+      "lastUpdated": "20 Jan",
+      "updateHistory": ["20 Jan | First draft complete", "18 Jan | Kicked off"]
+    },
+    {
+      "jobNumber": "LAB 056",
+      "jobName": "Speech Writing",
+      "clientCode": "LAB",
+      "stage": "Refine",
+      "status": "In Progress",
+      "updateDue": "2026-01-24",
+      "liveDate": null,
+      "withClient": true,
+      "description": "Leader speech for conference",
+      "update": "With client for review",
+      "lastUpdated": "19 Jan",
+      "updateHistory": ["19 Jan | With client for review"]
+    }
   ],
   "reason": "Multiple active Labour jobs"
 }
