@@ -1,4 +1,4 @@
-"""
+""" 
 Dot Traffic 2.0 - Airtable Operations
 All reads and writes to Airtable: Projects, Clients, Traffic table
 """
