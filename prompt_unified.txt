@@ -256,8 +256,11 @@ When you can answer directly (simple question, tool lookup)
 
 --- TYPE: answer with jobs ---
 When returning job cards to display.
-IMPORTANT: Pass through the FULL job objects from get_active_jobs or get_all_active_jobs.
-Don't strip fields - the frontend needs all of them for the card display.
+
+IMPORTANT: 
+- Only include jobs that MATCH THE QUERY (e.g., "due today" = only today's jobs)
+- Each job must have ALL fields - don't strip any (frontend needs them for display)
+- Maximum 5-10 relevant jobs - never dump all 40+
 
 {
   "type": "answer",
