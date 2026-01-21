@@ -147,11 +147,16 @@ def handle_traffic():
         # ===================
         # Accept Hub's 'content', PA's 'body', or legacy 'emailContent'
         content = data.get('content') or data.get('body') or data.get('emailContent', '')
-        if not content:
-            return jsonify({'error': 'No email body provided'}), 400
         
-        # Extract all email fields (accept PA names: body, subject, from, to, cc)
+        # Extract subject early so we can use it as fallback content
         subject = data.get('subject') or data.get('subjectLine', '')
+        
+        # If no body but has subject, use subject as content
+        if not content and subject:
+            content = f"Subject: {subject}"
+        
+        if not content:
+            return jsonify({'error': 'No email body or subject provided'}), 400
         sender_email = data.get('from') or data.get('senderEmail', '')
         sender_name = data.get('senderName', '')
         all_recipients = data.get('to') or data.get('allRecipients', [])
