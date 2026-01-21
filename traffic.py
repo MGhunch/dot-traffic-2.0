@@ -3,8 +3,8 @@ Dot Traffic - Unified Brain
 Routes requests, answers questions, calls workers.
 
 UNIFIED: Handles both email and hub sources.
-- Email: PA Listener -> /traffic -> workers
-- Hub: Ask Dot -> /traffic -> response
+- Email: PA Listener ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ /traffic ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ workers
+- Hub: Ask Dot ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ /traffic ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ response
 
 One brain. Two inputs. Same Dot.
 """
@@ -625,15 +625,20 @@ Email content:
             messages=messages
         )
         
-        stop_reason = response.stop_reason
-        content_blocks = response.content
+        # Handle tool use - loop until Claude is done (max 5 rounds to prevent runaway)
+        tool_rounds = 0
+        max_tool_rounds = 5
         
-        # Handle tool use
-        if stop_reason == 'tool_use':
+        while response.stop_reason == 'tool_use' and tool_rounds < max_tool_rounds:
+            tool_rounds += 1
+            print(f"[traffic] Tool round {tool_rounds}")
+            
             tool_results = []
+            content_blocks = response.content
             
             for block in content_blocks:
                 if block.type == 'tool_use':
+                    print(f"[traffic] Executing tool: {block.name}")
                     tool_result = execute_tool(block.name, block.input)
                     tool_results.append({
                         'type': 'tool_result',
@@ -642,7 +647,6 @@ Email content:
                     })
             
             # Add assistant's tool use to messages
-            # Format each block correctly based on its type
             assistant_content = []
             for b in content_blocks:
                 if b.type == 'tool_use':
@@ -660,7 +664,7 @@ Email content:
             messages.append({'role': 'assistant', 'content': assistant_content})
             messages.append({'role': 'user', 'content': tool_results})
             
-            # Second Claude call with tool results
+            # Next Claude call with tool results
             response = anthropic_client.messages.create(
                 model=ANTHROPIC_MODEL,
                 max_tokens=1500,
@@ -669,7 +673,11 @@ Email content:
                 tools=CLAUDE_TOOLS,
                 messages=messages
             )
-            content_blocks = response.content
+        
+        if tool_rounds >= max_tool_rounds:
+            print(f"[traffic] Warning: Hit max tool rounds ({max_tool_rounds})")
+        
+        content_blocks = response.content
         
         # Extract text response
         result_text = ''
