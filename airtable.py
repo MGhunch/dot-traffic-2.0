@@ -1,4 +1,4 @@
-""" 
+"""
 Dot Traffic 2.0 - Airtable Operations
 All reads and writes to Airtable: Projects, Clients, Traffic table
 """
@@ -17,6 +17,7 @@ AIRTABLE_BASE_ID = os.environ.get('AIRTABLE_BASE_ID', 'app8CI7NAZqhQ4G1Y')
 PROJECTS_TABLE = 'Projects'
 CLIENTS_TABLE = 'Clients'
 TRAFFIC_TABLE = 'Traffic'
+UPDATES_TABLE = 'Updates'
 
 TIMEOUT = 10.0
 
@@ -328,6 +329,70 @@ def update_project_record(job_number, updates):
         
     except Exception as e:
         print(f"[airtable] Error updating project record: {e}")
+        return {'success': False, 'error': str(e)}
+
+
+def create_update_record(job_number, update_text, update_due=None):
+    """
+    Create a new record in the Updates table.
+    
+    Args:
+        job_number: e.g., 'LAB 055' - used to link to project
+        update_text: The update message
+        update_due: Optional due date (ISO format)
+    
+    Returns:
+        dict with 'success': True/False and 'record_id' if successful
+    """
+    if not AIRTABLE_API_KEY or not job_number or not update_text:
+        return {'success': False, 'error': 'Missing required fields'}
+    
+    try:
+        # First, find the project record ID to link to
+        params = {
+            'filterByFormula': f"{{Job Number}}='{job_number}'",
+            'maxRecords': 1
+        }
+        
+        response = httpx.get(
+            _url(PROJECTS_TABLE),
+            headers=_headers(),
+            params=params,
+            timeout=TIMEOUT
+        )
+        response.raise_for_status()
+        
+        records = response.json().get('records', [])
+        if not records:
+            return {'success': False, 'error': f'Project {job_number} not found'}
+        
+        project_record_id = records[0]['id']
+        
+        # Build the Updates record
+        update_fields = {
+            'Update': update_text,
+            'Project Link': [project_record_id]  # Linked record field
+        }
+        
+        if update_due:
+            update_fields['Update due'] = update_due
+        
+        # Create the record
+        response = httpx.post(
+            _url(UPDATES_TABLE),
+            headers=_headers(),
+            json={'fields': update_fields},
+            timeout=TIMEOUT
+        )
+        response.raise_for_status()
+        
+        new_record = response.json()
+        print(f"[airtable] Created update record for {job_number}: {new_record.get('id')}")
+        
+        return {'success': True, 'record_id': new_record.get('id')}
+        
+    except Exception as e:
+        print(f"[airtable] Error creating update record: {e}")
         return {'success': False, 'error': str(e)}
 
 

@@ -1,4 +1,4 @@
-""" 
+"""
 Dot Traffic 2.0
 Intelligent routing layer for Hunch's agency workflow.
 Receives emails from PA Listener or Hub, routes to workers.
@@ -54,6 +54,10 @@ def card_update():
     """
     Direct field update from Hub modal.
     No Claude, no workers - just write to Airtable.
+    
+    1. Updates Projects table (stage, status, dates, etc.)
+    2. Creates Updates record (if message provided)
+    3. TODO: Post to Teams
     """
     try:
         data = request.get_json()
@@ -62,11 +66,14 @@ def card_update():
         if not job_number:
             return jsonify({'error': 'Missing jobNumber'}), 400
         
-        # Map frontend field names to Airtable field names
+        message = data.get('message', '').strip()
+        update_due = data.get('updateDue')
+        
+        # Map frontend field names to Airtable field names (exact match from Projects table)
         field_mapping = {
             'stage': 'Stage',
             'status': 'Status',
-            'updateDue': 'Update Due',
+            'updateDue': 'Update due',
             'liveDate': 'Live Date',
             'withClient': 'With Client?',
             'description': 'Description',
@@ -74,7 +81,7 @@ def card_update():
             'projectName': 'Project Name'
         }
         
-        # Build Airtable fields from request
+        # Build Airtable fields from request (for Projects table)
         airtable_fields = {}
         for key, airtable_key in field_mapping.items():
             if key in data and data[key] is not None:
@@ -83,16 +90,39 @@ def card_update():
                     value = bool(value)
                 airtable_fields[airtable_key] = value
         
-        if not airtable_fields:
-            return jsonify({'error': 'No valid fields to update'}), 400
+        results = {
+            'project_update': None,
+            'update_record': None,
+            'teams_message': None
+        }
         
-        # Write to Airtable
-        result = airtable.update_project_record(job_number, airtable_fields)
+        # 1. Update Projects table
+        if airtable_fields:
+            results['project_update'] = airtable.update_project_record(job_number, airtable_fields)
         
-        if result.get('success'):
-            return jsonify(result)
+        # 2. Create Updates record (if message provided)
+        if message:
+            results['update_record'] = airtable.create_update_record(
+                job_number=job_number,
+                update_text=message,
+                update_due=update_due
+            )
+        
+        # 3. TODO: Post to Teams
+        # For now, just log what we'd send
+        if message:
+            teams_message = f"Card updated - {job_number}\n\nJob was updated from WIP. New update: {message}"
+            print(f"[app] Teams message (not sent yet): {teams_message}")
+            results['teams_message'] = {'logged': True, 'message': teams_message}
+        
+        # Check if anything succeeded
+        project_ok = results['project_update'] is None or results['project_update'].get('success')
+        update_ok = results['update_record'] is None or results['update_record'].get('success')
+        
+        if project_ok and update_ok:
+            return jsonify({'success': True, 'results': results})
         else:
-            return jsonify(result), 500
+            return jsonify({'success': False, 'results': results}), 500
             
     except Exception as e:
         print(f"[app] Error in /card-update: {e}")
