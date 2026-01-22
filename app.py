@@ -8,7 +8,9 @@ FLOW:
 2. Check for pending clarify reply
 3. Call Claude (Claude uses tools to fetch jobs, make decisions)
 4. Log to Traffic table
-5. Route response based on source (email → workers, hub → frontend)
+5. Route response based on source (email -> workers, hub -> frontend)
+
+NOTE: Card updates (job modal) are now handled by Hub directly.
 """
 
 from flask import Flask, request, jsonify
@@ -32,100 +34,32 @@ def health():
     return jsonify({
         'status': 'healthy',
         'service': 'Dot Traffic',
-        'version': '2.2',
+        'version': '2.3',
         'architecture': 'claude-first',
         'features': [
             'deduplication',
             'clarify-loop',
             'universal-payload',
             'route-registry',
-            'smart-client-detection',
-            'card-update'
+            'smart-client-detection'
         ]
     })
 
 
 # ===================
-# CARD UPDATE (Hub Modal)
+# SESSION CLEAR (Hub)
 # ===================
 
-@app.route('/card-update', methods=['POST'])
-def card_update():
-    """
-    Direct field update from Hub modal.
-    No Claude, no workers - just write to Airtable.
-    
-    1. Updates Projects table (stage, status, dates, etc.)
-    2. Creates Updates record (if message provided)
-    3. TODO: Post to Teams
-    """
+@app.route('/traffic/clear', methods=['POST'])
+def clear_session():
+    """Clear conversation memory for a Hub session"""
     try:
         data = request.get_json()
-        
-        job_number = data.get('jobNumber')
-        if not job_number:
-            return jsonify({'error': 'Missing jobNumber'}), 400
-        
-        message = data.get('message', '').strip()
-        update_due = data.get('updateDue')
-        
-        # Map frontend field names to Airtable field names (exact match from Projects table)
-        field_mapping = {
-            'stage': 'Stage',
-            'status': 'Status',
-            'updateDue': 'Update due',
-            'liveDate': 'Live Date',
-            'withClient': 'With Client?',
-            'description': 'Description',
-            'projectOwner': 'Project Owner',
-            'projectName': 'Project Name'
-        }
-        
-        # Build Airtable fields from request (for Projects table)
-        airtable_fields = {}
-        for key, airtable_key in field_mapping.items():
-            if key in data and data[key] is not None:
-                value = data[key]
-                if key == 'withClient':
-                    value = bool(value)
-                airtable_fields[airtable_key] = value
-        
-        results = {
-            'project_update': None,
-            'update_record': None,
-            'teams_message': None
-        }
-        
-        # 1. Update Projects table
-        if airtable_fields:
-            results['project_update'] = airtable.update_project_record(job_number, airtable_fields)
-        
-        # 2. Create Updates record (if message provided)
-        if message:
-            results['update_record'] = airtable.create_update_record(
-                job_number=job_number,
-                update_text=message,
-                update_due=update_due
-            )
-        
-        # 3. TODO: Post to Teams
-        # For now, just log what we'd send
-        if message:
-            teams_message = f"Card updated - {job_number}\n\nJob was updated from WIP. New update: {message}"
-            print(f"[app] Teams message (not sent yet): {teams_message}")
-            results['teams_message'] = {'logged': True, 'message': teams_message}
-        
-        # Check if anything succeeded
-        project_ok = results['project_update'] is None or results['project_update'].get('success')
-        update_ok = results['update_record'] is None or results['update_record'].get('success')
-        
-        if project_ok and update_ok:
-            return jsonify({'success': True, 'results': results})
-        else:
-            return jsonify({'success': False, 'results': results}), 500
-            
+        session_id = data.get('sessionId')
+        if session_id:
+            traffic.clear_conversation(session_id)
+        return jsonify({'success': True})
     except Exception as e:
-        print(f"[app] Error in /card-update: {e}")
         return jsonify({'error': str(e)}), 500
 
 
