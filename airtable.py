@@ -4,7 +4,6 @@ All reads and writes to Airtable: Projects, Clients, Traffic table
 """
 
 import os
-import re
 import httpx
 from datetime import datetime
 
@@ -23,60 +22,30 @@ UPDATES_TABLE = 'Updates'
 TIMEOUT = 10.0
 
 
-# ===================
-# DATE PARSING HELPERS (same as dot-hub-api)
-# ===================
-
-def parse_friendly_date(friendly_str):
-    """Parse friendly date formats into ISO format"""
-    if not friendly_str or friendly_str.upper() == 'TBC':
+def _parse_date_to_iso(date_str):
+    """
+    Parse Airtable date field (D/M/YYYY format) into ISO format (YYYY-MM-DD).
+    Handles formats like "2/3/2026" or "15/12/2025".
+    """
+    if not date_str or str(date_str).upper() == 'TBC':
         return None
     
-    match = re.search(r'(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)', friendly_str, re.IGNORECASE)
-    if match:
-        day = int(match.group(1))
-        month_str = match.group(2).capitalize()
-        months = {'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
-                  'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12}
-        month = months.get(month_str)
-        if month:
-            year = datetime.now().year
-            try:
-                date = datetime(year, month, day)
-                if (datetime.now() - date).days > 180:
-                    date = datetime(year + 1, month, day)
-                return date.strftime('%Y-%m-%d')
-            except ValueError:
-                return None
-    
-    try:
-        date = datetime.strptime(friendly_str, '%d %B %Y')
-        return date.strftime('%Y-%m-%d')
-    except ValueError:
-        pass
-    
-    return None
-
-
-def parse_status_changed(status_str):
-    """Parse Status Changed field into ISO date"""
-    if not status_str:
-        return None
-    
-    if 'T' in status_str:
-        try:
-            date_part = status_str.split('T')[0]
-            return date_part
-        except:
-            pass
-    
-    match = re.search(r'(\d{1,2})/(\d{1,2})/(\d{4})', status_str)
+    import re
+    # Handle D/M/YYYY format
+    match = re.search(r'(\d{1,2})/(\d{1,2})/(\d{4})', str(date_str))
     if match:
         day, month, year = int(match.group(1)), int(match.group(2)), int(match.group(3))
         try:
             return datetime(year, month, day).strftime('%Y-%m-%d')
         except ValueError:
             return None
+    
+    # Also handle ISO format if Airtable sends it that way
+    if 'T' in str(date_str):
+        try:
+            return str(date_str).split('T')[0]
+        except:
+            pass
     
     return None
 
@@ -313,31 +282,30 @@ def get_active_jobs(client_code):
             fields = record.get('fields', {})
             job_number = fields.get('Job Number', '')
             
-            # Get update text - same as dot-hub-api
-            update_summary = fields.get('Update Summary', '') or fields.get('Update', '')
-            latest_update = update_summary
-            if '|' in update_summary:
-                parts = update_summary.split('|')
-                latest_update = parts[-1].strip() if parts else update_summary
+            # Get update from the Update field directly
+            latest_update = fields.get('Update', '')
             
-            # Parse dates - same as dot-hub-api
-            update_due_friendly = fields.get('Update due friendly', '')
-            update_due = parse_friendly_date(update_due_friendly)
+            # Parse update history (field name is 'Update History')
+            update_history_raw = fields.get('Update History', []) or fields.get('Update history', [])
+            update_history = []
+            last_updated = None
             
-            live_date_raw = fields.get('Live Date', '')
-            live_date = parse_friendly_date(live_date_raw) if live_date_raw else None
+            if update_history_raw:
+                if isinstance(update_history_raw, list):
+                    update_history = update_history_raw[:5]  # Keep last 5 for history
+                elif isinstance(update_history_raw, str):
+                    update_history = [u.strip() for u in update_history_raw.split('\n') if u.strip()][:5]
+                
+                # Extract date from first history entry if present
+                if update_history:
+                    first_update = update_history[0]
+                    if ' | ' in first_update:
+                        date_part, _ = first_update.split(' | ', 1)
+                        last_updated = date_part
             
-            last_update_made = fields.get('Last update made', '')
-            last_updated = parse_status_changed(last_update_made)
-            
-            # Get update history - could be array or string
-            update_history_raw = fields.get('Update history', [])
-            if isinstance(update_history_raw, str):
-                update_history = [u.strip() for u in update_history_raw.split('\n') if u.strip()]
-            elif isinstance(update_history_raw, list):
-                update_history = update_history_raw[:5]
-            else:
-                update_history = []
+            # Parse Update Due - now D/M/YYYY format, convert to ISO for JS
+            update_due_raw = fields.get('Update Due', '')
+            update_due = _parse_date_to_iso(update_due_raw)
             
             jobs.append({
                 'jobNumber': job_number,
@@ -346,12 +314,13 @@ def get_active_jobs(client_code):
                 'stage': fields.get('Stage', ''),
                 'status': fields.get('Status', ''),
                 'updateDue': update_due,
+                'liveDate': fields.get('Live', ''),  # Month dropdown: "Jan", "Feb", "Tbc"
                 'withClient': fields.get('With Client?', False),
                 'clientCode': job_number.split()[0] if job_number else '',
                 'update': latest_update,
                 'lastUpdated': last_updated,
                 'updateHistory': update_history,
-                'liveDate': live_date,
+                'channelUrl': fields.get('Channel Url', ''),
             })
         
         return jobs
@@ -394,31 +363,30 @@ def get_all_active_jobs():
             fields = record.get('fields', {})
             job_number = fields.get('Job Number', '')
             
-            # Get update text - same as dot-hub-api
-            update_summary = fields.get('Update Summary', '') or fields.get('Update', '')
-            latest_update = update_summary
-            if '|' in update_summary:
-                parts = update_summary.split('|')
-                latest_update = parts[-1].strip() if parts else update_summary
+            # Get update from the Update field directly
+            latest_update = fields.get('Update', '')
             
-            # Parse dates - same as dot-hub-api
-            update_due_friendly = fields.get('Update due friendly', '')
-            update_due = parse_friendly_date(update_due_friendly)
+            # Parse update history (field name is 'Update History')
+            update_history_raw = fields.get('Update History', []) or fields.get('Update history', [])
+            update_history = []
+            last_updated = None
             
-            live_date_raw = fields.get('Live Date', '')
-            live_date = parse_friendly_date(live_date_raw) if live_date_raw else None
+            if update_history_raw:
+                if isinstance(update_history_raw, list):
+                    update_history = update_history_raw[:5]  # Keep last 5 for history
+                elif isinstance(update_history_raw, str):
+                    update_history = [u.strip() for u in update_history_raw.split('\n') if u.strip()][:5]
+                
+                # Extract date from first history entry if present
+                if update_history:
+                    first_update = update_history[0]
+                    if ' | ' in first_update:
+                        date_part, _ = first_update.split(' | ', 1)
+                        last_updated = date_part
             
-            last_update_made = fields.get('Last update made', '')
-            last_updated = parse_status_changed(last_update_made)
-            
-            # Get update history - could be array or string
-            update_history_raw = fields.get('Update history', [])
-            if isinstance(update_history_raw, str):
-                update_history = [u.strip() for u in update_history_raw.split('\n') if u.strip()]
-            elif isinstance(update_history_raw, list):
-                update_history = update_history_raw[:5]
-            else:
-                update_history = []
+            # Parse Update Due - now D/M/YYYY format, convert to ISO for JS
+            update_due_raw = fields.get('Update Due', '')
+            update_due = _parse_date_to_iso(update_due_raw)
             
             jobs.append({
                 'jobNumber': job_number,
@@ -427,12 +395,13 @@ def get_all_active_jobs():
                 'stage': fields.get('Stage', ''),
                 'status': fields.get('Status', ''),
                 'updateDue': update_due,
+                'liveDate': fields.get('Live', ''),  # Month dropdown: "Jan", "Feb", "Tbc"
                 'withClient': fields.get('With Client?', False),
                 'clientCode': job_number.split()[0] if job_number else '',
                 'update': latest_update,
                 'lastUpdated': last_updated,
                 'updateHistory': update_history,
-                'liveDate': live_date,
+                'channelUrl': fields.get('Channel Url', ''),
             })
         
         return jobs
@@ -478,31 +447,30 @@ def get_job_by_number(job_number):
         
         fields = records[0].get('fields', {})
         
-        # Get update text - same as dot-hub-api
-        update_summary = fields.get('Update Summary', '') or fields.get('Update', '')
-        latest_update = update_summary
-        if '|' in update_summary:
-            parts = update_summary.split('|')
-            latest_update = parts[-1].strip() if parts else update_summary
+        # Get update from the Update field directly
+        latest_update = fields.get('Update', '')
         
-        # Parse dates - same as dot-hub-api
-        update_due_friendly = fields.get('Update due friendly', '')
-        update_due = parse_friendly_date(update_due_friendly)
+        # Parse update history (field name is 'Update History')
+        update_history_raw = fields.get('Update History', []) or fields.get('Update history', [])
+        update_history = []
+        last_updated = None
         
-        live_date_raw = fields.get('Live Date', '')
-        live_date = parse_friendly_date(live_date_raw) if live_date_raw else None
+        if update_history_raw:
+            if isinstance(update_history_raw, list):
+                update_history = update_history_raw[:5]  # Keep last 5 for history
+            elif isinstance(update_history_raw, str):
+                update_history = [u.strip() for u in update_history_raw.split('\n') if u.strip()][:5]
+            
+            # Extract date from first history entry if present
+            if update_history:
+                first_update = update_history[0]
+                if ' | ' in first_update:
+                    date_part, _ = first_update.split(' | ', 1)
+                    last_updated = date_part
         
-        last_update_made = fields.get('Last update made', '')
-        last_updated = parse_status_changed(last_update_made)
-        
-        # Get update history - could be array or string
-        update_history_raw = fields.get('Update history', [])
-        if isinstance(update_history_raw, str):
-            update_history = [u.strip() for u in update_history_raw.split('\n') if u.strip()]
-        elif isinstance(update_history_raw, list):
-            update_history = update_history_raw[:5]
-        else:
-            update_history = []
+        # Parse Update Due - now D/M/YYYY format, convert to ISO for JS
+        update_due_raw = fields.get('Update Due', '')
+        update_due = _parse_date_to_iso(update_due_raw)
         
         return {
             'jobNumber': fields.get('Job Number', ''),
@@ -511,12 +479,13 @@ def get_job_by_number(job_number):
             'stage': fields.get('Stage', ''),
             'status': fields.get('Status', ''),
             'updateDue': update_due,
+            'liveDate': fields.get('Live', ''),  # Month dropdown: "Jan", "Feb", "Tbc"
             'withClient': fields.get('With Client?', False),
             'clientCode': job_number.split()[0] if job_number else '',
             'update': latest_update,
             'lastUpdated': last_updated,
             'updateHistory': update_history,
-            'liveDate': live_date,
+            'channelUrl': fields.get('Channel Url', ''),
         }
         
     except Exception as e:
@@ -537,7 +506,7 @@ def update_project_record(job_number, updates):
                 'Status': 'In Progress',
                 'With Client?': True,
                 'Update Due': '2026-01-25',
-                'Live Date': '2026-02-15',
+                'Live': 'Feb',
                 'Description': 'Updated description',
                 'Project Owner': 'Sarah',
                 'Project Name': 'New name'
