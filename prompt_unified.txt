@@ -281,8 +281,9 @@ IMPORTANT:
       "withClient": false,
       "description": "Election campaign materials",
       "update": "First draft complete",
-      "lastUpdated": "20 Jan",
-      "updateHistory": ["20 Jan | First draft complete", "18 Jan | Kicked off"]
+      "daysSinceUpdate": "2 days ago",
+      "updateHistory": ["20 Jan | First draft complete", "18 Jan | Kicked off"],
+      "channelUrl": "https://teams.microsoft.com/l/channel/..."
     }
   ],
   "nextPrompt": "Want me to filter by client?",
@@ -329,8 +330,9 @@ Pass through full job objects from get_active_jobs - don't strip fields.
       "withClient": false,
       "description": "Election campaign materials",
       "update": "First draft complete",
-      "lastUpdated": "20 Jan",
-      "updateHistory": ["20 Jan | First draft complete", "18 Jan | Kicked off"]
+      "daysSinceUpdate": "2 days ago",
+      "updateHistory": ["20 Jan | First draft complete", "18 Jan | Kicked off"],
+      "channelUrl": "https://teams.microsoft.com/l/channel/..."
     },
     {
       "jobNumber": "LAB 056",
@@ -343,8 +345,9 @@ Pass through full job objects from get_active_jobs - don't strip fields.
       "withClient": true,
       "description": "Leader speech for conference",
       "update": "With client for review",
-      "lastUpdated": "19 Jan",
-      "updateHistory": ["19 Jan | With client for review"]
+      "daysSinceUpdate": "3 days ago",
+      "updateHistory": ["19 Jan | With client for review"],
+      "channelUrl": "https://teams.microsoft.com/l/channel/..."
     }
   ],
   "reason": "Multiple active Labour jobs"
