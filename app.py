@@ -3,27 +3,103 @@ Dot Traffic 2.0
 Intelligent routing layer for Hunch's agency workflow.
 Receives emails from PA Listener or Hub, routes to workers.
 
+ARCHITECTURE:
+- DOT THINKS (traffic.py) - Claude decides what to do
+- WORKERS WORK (dot-update, dot-file) - Do the actual work + communicate results
+- AIRTABLE REMEMBERS (airtable.py) - Data persistence
+- CONNECT COMMUNICATES (connect.py) - Email and Teams (called by workers OR traffic for answers)
+
 FLOW:
 1. Gates (ignore self, check sender domain, deduplication)
 2. Check for pending clarify reply
 3. Call Claude (Claude uses tools to fetch jobs, make decisions)
 4. Log to Traffic table
-5. Route response based on source (email -> workers, hub -> frontend)
-
-NOTE: Card updates (job modal) are now handled by Hub directly.
-
-UPDATED: Added file-first orchestration - if email has attachments + job number,
-         file them BEFORE calling the route's worker.
+5. Route based on type:
+   - answer/redirect/clarify → connect.py sends email directly
+   - action → call worker, worker handles Teams + confirmation email
 """
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import httpx
 import airtable
 import traffic
 import connect
 
 app = Flask(__name__)
 CORS(app)
+
+# ===================
+# WORKER URLS
+# ===================
+
+WORKER_URLS = {
+    'update': 'https://dot-update.up.railway.app/update',
+    'file': 'https://dot-file.up.railway.app/file',
+    # Add more workers as they're built:
+    # 'triage': 'https://dot-triage.up.railway.app/triage',
+    # 'feedback': 'https://dot-update.up.railway.app/update',  # Same as update
+}
+
+WORKER_TIMEOUT = 30.0
+
+
+def call_worker(route, payload):
+    """
+    Call a worker service directly.
+    Workers are responsible for their own communication (Teams, confirmation emails).
+    
+    Returns dict with success status and worker response.
+    """
+    url = WORKER_URLS.get(route)
+    
+    if not url:
+        print(f"[app] No worker URL configured for route: {route}")
+        return {
+            'success': False,
+            'error': f'No worker configured for route: {route}',
+            'route': route
+        }
+    
+    print(f"[app] Calling worker: {route} -> {url}")
+    
+    try:
+        response = httpx.post(
+            url,
+            json=payload,
+            timeout=WORKER_TIMEOUT,
+            headers={'Content-Type': 'application/json'}
+        )
+        
+        success = response.status_code == 200
+        
+        try:
+            response_data = response.json()
+        except:
+            response_data = response.text
+        
+        print(f"[app] Worker response: {response.status_code}, success={success}")
+        
+        return {
+            'success': success,
+            'status_code': response.status_code,
+            'response': response_data
+        }
+        
+    except httpx.TimeoutException:
+        print(f"[app] Worker timeout: {route}")
+        return {
+            'success': False,
+            'error': f'Worker timeout after {WORKER_TIMEOUT}s',
+            'route': route
+        }
+    except Exception as e:
+        print(f"[app] Worker error: {route} - {e}")
+        return {
+            'success': False,
+            'error': str(e),
+            'route': route
+        }
 
 
 # ===================
@@ -37,15 +113,13 @@ def health():
     return jsonify({
         'status': 'healthy',
         'service': 'Dot Traffic',
-        'version': '2.4',  # Bumped version for file-first orchestration
-        'architecture': 'claude-first',
+        'version': '3.0',  # Major version bump for new architecture
+        'architecture': 'workers-communicate',
         'features': [
             'deduplication',
             'clarify-loop',
-            'universal-payload',
-            'route-registry',
-            'smart-client-detection',
-            'file-first-orchestration'  # NEW
+            'direct-worker-calls',
+            'workers-own-communication'
         ]
     })
 
@@ -83,31 +157,25 @@ def handle_traffic():
         # ===================
         # VALIDATE INPUT
         # ===================
-        # Accept Hub's 'content', PA's 'body', or legacy 'emailContent'
         content = data.get('content') or data.get('body') or data.get('emailContent', '')
-        
-        # Extract subject early so we can use it as fallback content
         subject = data.get('subject') or data.get('subjectLine', '')
         
-        # If no body but has subject, use subject as content
         if not content and subject:
             content = f"Subject: {subject}"
         
         if not content:
             return jsonify({'error': 'No email body or subject provided'}), 400
+        
         sender_email = data.get('from') or data.get('senderEmail', '')
         sender_name = data.get('senderName', '')
-        all_recipients = data.get('to') or data.get('allRecipients', [])
         has_attachments = data.get('hasAttachments', False)
-        attachment_names = data.get('attachmentNames', [])
-        attachment_list = data.get('attachmentList', [])
         source = data.get('source', 'email')
         internet_message_id = data.get('internetMessageId', '')
         conversation_id = data.get('conversationId', '')
         received_datetime = data.get('receivedDateTime', '')
         
         # ===================
-        # STEP 1: IGNORE DOT'S OWN EMAILS (prevent loops)
+        # STEP 1: IGNORE DOT'S OWN EMAILS
         # ===================
         if sender_email.lower() == 'dot@hunch.co.nz':
             return jsonify({
@@ -119,17 +187,10 @@ def handle_traffic():
         # ===================
         # STEP 2: CHECK SENDER DOMAIN
         # ===================
-        # Only process emails from @hunch.co.nz
         if not sender_email.lower().endswith('@hunch.co.nz'):
             airtable.log_traffic(
-                internet_message_id,
-                conversation_id,
-                'external',
-                'ignored',
-                None,
-                None,
-                sender_email,
-                subject
+                internet_message_id, conversation_id, 'external', 'ignored',
+                None, None, sender_email, subject
             )
             return jsonify({
                 'route': 'external',
@@ -155,19 +216,16 @@ def handle_traffic():
         # ===================
         # STEP 4: CHECK PENDING CLARIFY
         # ===================
-        pending_clarify = None
         if conversation_id:
             pending_clarify = airtable.check_pending_clarify(conversation_id)
-        
-        if pending_clarify:
-            result = handle_clarify_reply(data, pending_clarify)
-            if result:
-                return jsonify(result)
+            if pending_clarify:
+                result = handle_clarify_reply(data, pending_clarify)
+                if result:
+                    return jsonify(result)
         
         # ===================
         # STEP 5: CALL CLAUDE
         # ===================
-        # Claude identifies client, intent, and finds jobs using tools
         print(f"[app] === ROUTING ===")
         print(f"[app] Source: {source}")
         print(f"[app] Subject: {subject}")
@@ -184,209 +242,133 @@ def handle_traffic():
             return jsonify(routing), 500
         
         # ===================
-        # STEP 5b: ENRICH WITH PROJECT DATA (if we have a job number)
+        # STEP 5b: ENRICH WITH PROJECT DATA
         # ===================
         if routing.get('jobNumber'):
             project = airtable.get_project(routing.get('jobNumber'))
             if project:
                 routing = enrich_with_project(routing, project)
-                print(f"[app] Enriched with project data: teamId={routing.get('teamId')}, channelId={routing.get('teamsChannelId')}")
+                print(f"[app] Enriched: teamId={routing.get('teamId')}, channelId={routing.get('teamsChannelId')}")
         
         # ===================
         # STEP 6: LOG TO TRAFFIC TABLE
         # ===================
-        # Determine response type - with backwards compatibility
-        response_type = routing.get('type')
+        response_type = routing.get('type', 'action')
         route = routing.get('route', 'unknown')
         
-        if not response_type:
-            # Backwards compat: infer type from route
-            if route in ['clarify', 'confirm']:
-                response_type = route
-            else:
-                response_type = 'action'
-        
-        # For logging, use type if it's clarify/confirm, otherwise use route
         log_route = response_type if response_type in ['clarify', 'confirm', 'answer', 'redirect'] else route
         status = 'pending' if response_type in ['clarify', 'confirm'] else 'processed'
         
         airtable.log_traffic(
-            internet_message_id,
-            conversation_id,
-            log_route,
-            status,
-            routing.get('jobNumber'),
-            routing.get('clientCode'),
-            sender_email,
-            subject
+            internet_message_id, conversation_id, log_route, status,
+            routing.get('jobNumber'), routing.get('clientCode'),
+            sender_email, subject
         )
         
         # ===================
-        # STEP 7: BUILD UNIVERSAL PAYLOAD
+        # STEP 7: BUILD PAYLOAD
         # ===================
-        payload = build_universal_payload(data, routing)
+        payload = build_worker_payload(data, routing)
         
         # ===================
-        # STEP 8: BUILD EMAIL (if clarify/confirm AND email source)
-        # ===================
-        if response_type in ['clarify', 'confirm'] and source == 'email':
-            clarify_type = routing.get('clarifyType', 'no_idea')
-            # For confirm, use 'confirm' as the template type
-            if response_type == 'confirm':
-                clarify_type = 'confirm'
-            payload['emailHtml'] = connect.build_email(clarify_type, {
-                **routing,
-                'senderName': sender_name,
-                'senderEmail': sender_email,
-                'subjectLine': subject,
-                'receivedDateTime': received_datetime,
-                'emailContent': content
-            })
-        
-        # ===================
-        # STEP 9: CALL DOWNSTREAM (source-aware)
+        # STEP 8: ROUTE BASED ON TYPE
         # ===================
         worker_result = None
-        file_result = None
         
-        if response_type == 'action':
+        # Build original email for trail (used by connect.py)
+        original_email = {
+            'senderName': sender_name,
+            'senderEmail': sender_email,
+            'subject': subject,
+            'receivedDateTime': received_datetime,
+            'content': content
+        }
+        
+        if response_type == 'answer':
+            # ANSWER: Traffic sends email directly via connect.py
             if source == 'email':
-                # ===================
-                # FILE-FIRST ORCHESTRATION (NEW)
-                # ===================
-                # If there are attachments AND we have a job number, file them first
-                if has_attachments and routing.get('jobNumber'):
-                    print(f"[app] Filing attachments first for {routing.get('jobNumber')}")
-                    file_result = connect.call_worker('file', payload)
-                    print(f"[app] File result: success={file_result.get('success')}")
-                
-                # Then call the route's worker
-                worker_result = connect.call_worker(route, payload)
-                
-                # Include file result if we filed
-                if file_result:
-                    worker_result['fileResult'] = file_result
-            else:
-                # Hub - don't call workers, return for user to act on
-                # (e.g., show job card for them to update themselves)
-                worker_result = {'success': True, 'status': 'user_action_required'}
-        elif response_type in ['clarify', 'confirm']:
-            if source == 'email':
-                # Send clarification email via PA Postman
-                worker_result = connect.call_worker(response_type, payload)
-            else:
-                # Hub - just return, frontend will render the message/cards
-                worker_result = {'success': True, 'status': 'pending_user_input'}
-        elif response_type == 'answer':
-            if source == 'email':
-                # Build original email data for trail
-                original_email_data = {
-                    'senderName': sender_name,
-                    'senderEmail': sender_email,
-                    'subject': subject,
-                    'receivedDateTime': received_datetime,
-                    'content': content
-                }
-                
-                # Send answer email via PA Postman
                 worker_result = connect.send_answer(
                     to_email=sender_email,
                     message=routing.get('message', ''),
                     sender_name=sender_name,
                     subject_line=subject,
-                    client_code=routing.get('clientCode'),
-                    client_name=routing.get('clientName'),
-                    original_email=original_email_data
+                    original_email=original_email
                 )
             else:
-                # Hub - just return, frontend will render the message
                 worker_result = {'success': True, 'status': 'answered'}
-        elif response_type == 'redirect':
-            if source == 'email':
-                # Build original email data for trail
-                original_email_data = {
-                    'senderName': sender_name,
-                    'senderEmail': sender_email,
-                    'subject': subject,
-                    'receivedDateTime': received_datetime,
-                    'content': content
-                }
                 
-                # Send redirect email via PA Postman
+        elif response_type == 'redirect':
+            # REDIRECT: Traffic sends email directly via connect.py
+            if source == 'email':
                 worker_result = connect.send_redirect(
                     to_email=sender_email,
-                    message=routing.get('message', ''),
                     sender_name=sender_name,
                     subject_line=subject,
                     client_code=routing.get('clientCode'),
                     client_name=routing.get('clientName'),
-                    redirect_to=routing.get('redirectTo', 'WIP'),
-                    original_email=original_email_data
+                    redirect_to=routing.get('redirectTo', 'wip'),
+                    message=routing.get('message'),
+                    original_email=original_email
                 )
             else:
-                # Hub - just return, frontend will render the redirect
                 worker_result = {'success': True, 'status': 'redirected'}
-        else:
-            # Unknown type - try calling as route for backwards compat (email only)
+                
+        elif response_type in ['clarify', 'confirm']:
+            # CLARIFY/CONFIRM: Traffic sends email directly via connect.py
             if source == 'email':
-                worker_result = connect.call_worker(route, payload)
+                clarify_type = routing.get('clarifyType', 'no_idea')
+                if response_type == 'confirm':
+                    clarify_type = 'confirm'
+                
+                worker_result = connect.send_clarify(
+                    to_email=sender_email,
+                    clarify_type=clarify_type,
+                    sender_name=sender_name,
+                    subject_line=subject,
+                    job_number=routing.get('jobNumber'),
+                    possible_jobs=routing.get('jobs') or routing.get('possibleJobs'),
+                    original_email=original_email
+                )
             else:
-                worker_result = {'success': False, 'status': 'unknown_type', 'error': f'Unknown type: {response_type}'}
-        
-        # ===================
-        # STEP 10: SEND CONFIRMATION OR FAILURE EMAIL (email source only)
-        # ===================
-        confirmation_result = None
-        
-        # Only send confirmation emails for email source actions
-        if source == 'email' and response_type == 'action':
-            if worker_result and worker_result.get('success'):
-                # Get files URL from worker response if available
-                files_url = worker_result.get('response', {}).get('folderUrl') if isinstance(worker_result.get('response'), dict) else None
+                worker_result = {'success': True, 'status': 'pending_user_input'}
                 
-                # Build original email data for trail
-                original_email_data = {
-                    'senderName': sender_name,
-                    'senderEmail': sender_email,
-                    'subject': subject,
-                    'receivedDateTime': received_datetime,
-                    'content': content
-                }
+        elif response_type == 'action':
+            # ACTION: Call worker, worker handles Teams + confirmation email
+            if source == 'email':
+                # File attachments first if needed
+                file_result = None
+                if has_attachments and routing.get('jobNumber'):
+                    print(f"[app] Filing attachments for {routing.get('jobNumber')}")
+                    file_result = call_worker('file', payload)
+                    print(f"[app] File result: success={file_result.get('success')}")
                 
-                confirmation_result = connect.send_confirmation(
-                    to_email=sender_email,
-                    route=route,
-                    sender_name=sender_name,
-                    client_name=routing.get('clientName'),
-                    job_number=routing.get('jobNumber'),
-                    job_name=routing.get('jobName'),
-                    subject_line=subject,
-                    files_url=files_url,
-                    original_email=original_email_data
-                )
-            elif worker_result:
-                # Worker failed - send failure notification
-                error_message = worker_result.get('error') or worker_result.get('response') or 'Unknown error'
-                # Build original email data for trail
-                original_email_data = {
-                    'senderName': sender_name,
-                    'senderEmail': sender_email,
-                    'subject': subject,
-                    'receivedDateTime': received_datetime,
-                    'content': content
-                }
+                # Call the main worker
+                worker_result = call_worker(route, payload)
                 
-                confirmation_result = connect.send_failure(
-                    to_email=sender_email,
-                    route=route,
-                    error_message=str(error_message),
-                    sender_name=sender_name,
-                    subject_line=subject,
-                    job_number=routing.get('jobNumber'),
-                    job_name=routing.get('jobName'),
-                    client_name=routing.get('clientName'),
-                    original_email=original_email_data
-                )
+                # Include file result
+                if file_result:
+                    worker_result['fileResult'] = file_result
+                    
+                # If worker failed, send failure email from app.py
+                # (because worker might not have been able to send it)
+                if not worker_result.get('success'):
+                    connect.send_failure(
+                        to_email=sender_email,
+                        route=route,
+                        error_message=worker_result.get('error', 'Unknown error'),
+                        sender_name=sender_name,
+                        subject_line=subject,
+                        job_number=routing.get('jobNumber'),
+                        job_name=routing.get('jobName'),
+                        client_name=routing.get('clientName'),
+                        original_email=original_email
+                    )
+            else:
+                # Hub - return for user to act on
+                worker_result = {'success': True, 'status': 'user_action_required'}
+        else:
+            # Unknown type
+            worker_result = {'success': False, 'error': f'Unknown type: {response_type}'}
         
         # ===================
         # RETURN RESPONSE
@@ -402,15 +384,9 @@ def handle_traffic():
             'clientName': routing.get('clientName'),
             'intent': routing.get('intent'),
             'jobs': routing.get('jobs') or routing.get('possibleJobs'),
-            'originalIntent': routing.get('originalIntent'),
             'clarifyType': routing.get('clarifyType'),
             'redirectTo': routing.get('redirectTo'),
-            'redirectParams': routing.get('redirectParams'),
-            'nextPrompt': routing.get('nextPrompt'),
-            'worker': worker_result,
-            'fileResult': file_result,  # NEW: Include file result in response
-            'confirmation': confirmation_result,
-            'payload': payload
+            'worker': worker_result
         })
         
     except Exception as e:
@@ -448,7 +424,6 @@ def enrich_with_project(routing, project):
 def handle_clarify_reply(data, pending_clarify):
     """
     Handle a reply to a previous clarify request.
-    
     Returns routing dict if handled, None to continue normal processing.
     """
     content = (data.get('body') or data.get('emailContent', '')).strip()
@@ -457,8 +432,19 @@ def handle_clarify_reply(data, pending_clarify):
     sender_name = data.get('senderName', '')
     internet_message_id = data.get('internetMessageId', '')
     conversation_id = data.get('conversationId', '')
+    received_datetime = data.get('receivedDateTime', '')
+    has_attachments = data.get('hasAttachments', False)
     
     pending_fields = pending_clarify['fields']
+    
+    # Build original email for trail
+    original_email = {
+        'senderName': sender_name,
+        'senderEmail': sender_email,
+        'subject': subject,
+        'receivedDateTime': received_datetime,
+        'content': content
+    }
     
     # Check for job number in reply
     reply_job_number = traffic.extract_job_number(subject)
@@ -486,20 +472,12 @@ def handle_clarify_reply(data, pending_clarify):
         )
         airtable.update_traffic_record(pending_clarify['id'], {'Status': 'resolved'})
         
-        payload = build_universal_payload(data, {
-            'route': 'triage',
-            'confidence': 'high',
-            'reason': 'User requested triage in clarify reply'
-        })
-        
-        worker_result = connect.call_worker('triage', payload)
-        
+        # TODO: Call triage worker when built
         return {
             'route': 'triage',
             'confidence': 'high',
-            'reason': 'User requested triage in clarify reply',
-            'worker': worker_result,
-            'payload': payload
+            'reason': 'User requested triage - worker not yet built',
+            'worker': {'success': False, 'error': 'Triage worker not yet built'}
         }
     
     elif reply_job_number:
@@ -525,54 +503,56 @@ def handle_clarify_reply(data, pending_clarify):
             routing = enrich_with_project(routing, project)
             routing['clientCode'] = reply_job_number.split()[0]
             
-            payload = build_universal_payload(data, routing)
+            payload = build_worker_payload(data, routing)
             
-            # FILE-FIRST: Check for attachments before calling update
+            # File attachments first if needed
             file_result = None
-            has_attachments = data.get('hasAttachments', False)
             if has_attachments and reply_job_number:
                 print(f"[app] Filing attachments (clarify reply) for {reply_job_number}")
-                file_result = connect.call_worker('file', payload)
+                file_result = call_worker('file', payload)
             
-            worker_result = connect.call_worker('update', payload)
+            # Call update worker
+            worker_result = call_worker('update', payload)
             
             if file_result:
                 worker_result['fileResult'] = file_result
+            
+            # If worker failed, send failure email
+            if not worker_result.get('success'):
+                connect.send_failure(
+                    to_email=sender_email,
+                    route='update',
+                    error_message=worker_result.get('error', 'Unknown error'),
+                    sender_name=sender_name,
+                    subject_line=subject,
+                    job_number=reply_job_number,
+                    job_name=routing.get('jobName'),
+                    client_name=routing.get('clientName'),
+                    original_email=original_email
+                )
             
             return {
                 'route': 'update',
                 'confidence': 'high',
                 'reason': 'Job number provided in clarify reply',
                 'jobNumber': reply_job_number,
-                'worker': worker_result,
-                'fileResult': file_result,
-                'payload': payload
+                'worker': worker_result
             }
         else:
             # Invalid job number - clarify again
-            routing = {
-                'route': 'clarify',
-                'confidence': 'low',
-                'clarifyType': 'job_not_found',
-                'jobNumber': reply_job_number,
-                'reason': f"Job {reply_job_number} not found in system"
-            }
-            
-            payload = build_universal_payload(data, routing)
-            payload['emailHtml'] = connect.build_email('job_not_found', {
-                **routing,
-                'senderName': sender_name,
-                'jobNumber': reply_job_number
-            })
-            
-            worker_result = connect.call_worker('clarify', payload)
+            connect.send_clarify(
+                to_email=sender_email,
+                clarify_type='job_not_found',
+                sender_name=sender_name,
+                subject_line=subject,
+                job_number=reply_job_number,
+                original_email=original_email
+            )
             
             return {
                 'route': 'clarify',
                 'confidence': 'low',
-                'reason': f"Job {reply_job_number} not found in system",
-                'worker': worker_result,
-                'payload': payload
+                'reason': f"Job {reply_job_number} not found in system"
             }
     
     elif is_yes:
@@ -598,28 +578,40 @@ def handle_clarify_reply(data, pending_clarify):
                 routing = enrich_with_project(routing, project)
                 routing['clientCode'] = suggested_job.split()[0]
                 
-                payload = build_universal_payload(data, routing)
+                payload = build_worker_payload(data, routing)
                 
-                # FILE-FIRST: Check for attachments before calling update
+                # File attachments first if needed
                 file_result = None
-                has_attachments = data.get('hasAttachments', False)
                 if has_attachments and suggested_job:
                     print(f"[app] Filing attachments (clarify confirm) for {suggested_job}")
-                    file_result = connect.call_worker('file', payload)
+                    file_result = call_worker('file', payload)
                 
-                worker_result = connect.call_worker('update', payload)
+                # Call update worker
+                worker_result = call_worker('update', payload)
                 
                 if file_result:
                     worker_result['fileResult'] = file_result
+                
+                # If worker failed, send failure email
+                if not worker_result.get('success'):
+                    connect.send_failure(
+                        to_email=sender_email,
+                        route='update',
+                        error_message=worker_result.get('error', 'Unknown error'),
+                        sender_name=sender_name,
+                        subject_line=subject,
+                        job_number=suggested_job,
+                        job_name=routing.get('jobName'),
+                        client_name=routing.get('clientName'),
+                        original_email=original_email
+                    )
                 
                 return {
                     'route': 'update',
                     'confidence': 'high',
                     'reason': 'User confirmed suggested job',
                     'jobNumber': suggested_job,
-                    'worker': worker_result,
-                    'fileResult': file_result,
-                    'payload': payload
+                    'worker': worker_result
                 }
     
     # Couldn't handle - return None to continue normal processing
@@ -627,51 +619,52 @@ def handle_clarify_reply(data, pending_clarify):
 
 
 # ===================
-# UNIVERSAL PAYLOAD BUILDER
+# WORKER PAYLOAD BUILDER
 # ===================
 
-def build_universal_payload(email_data, routing):
+def build_worker_payload(email_data, routing):
     """
-    Build the universal payload that goes to all workers.
-    
-    Args:
-        email_data: Original email data from PA Listener
-        routing: Routing decision from Claude + enrichment
-    
-    Returns:
-        dict with all fields any worker might need
+    Build the payload that goes to workers.
+    Includes everything the worker needs to do its job AND communicate results.
     """
     return {
-        # Routing
-        'type': routing.get('type', 'action'),
+        # Routing info
         'route': routing.get('route'),
-        'confidence': routing.get('confidence'),
-        'reasoning': routing.get('reason', ''),
-        'intent': routing.get('intent'),
-        'message': routing.get('message', ''),
+        'type': routing.get('type', 'action'),
         
-        # Job
+        # Job info
         'jobNumber': routing.get('jobNumber'),
+        'jobName': routing.get('jobName'),
         'clientCode': routing.get('clientCode'),
         'clientName': routing.get('clientName'),
         
-        # Project (from Airtable)
+        # Project info (for Airtable updates)
         'projectRecordId': routing.get('projectRecordId'),
-        'teamsChannelId': routing.get('teamsChannelId'),
-        'teamId': routing.get('teamId'),
         'currentStage': routing.get('currentStage'),
         'currentStatus': routing.get('currentStatus'),
         'withClient': routing.get('withClient'),
         'filesUrl': routing.get('filesUrl'),
         
-        # Sender (accept both PA names and our names)
+        # Teams info (for posting updates)
+        'teamsChannelId': routing.get('teamsChannelId'),
+        'teamId': routing.get('teamId'),
+        
+        # Email content (for worker to analyze)
+        'emailContent': email_data.get('body') or email_data.get('content') or email_data.get('emailContent', ''),
+        'subjectLine': email_data.get('subject') or email_data.get('subjectLine', ''),
+        
+        # Sender info (for confirmation emails)
         'senderName': email_data.get('senderName', ''),
         'senderEmail': email_data.get('from') or email_data.get('senderEmail', ''),
-        'allRecipients': email_data.get('to') or email_data.get('allRecipients', []),
         
-        # Content (accept both PA names and our names)
-        'subjectLine': email_data.get('subject') or email_data.get('subjectLine', ''),
-        'emailContent': email_data.get('body') or email_data.get('emailContent', ''),
+        # Original email (for email trail)
+        'originalEmail': {
+            'senderName': email_data.get('senderName', ''),
+            'senderEmail': email_data.get('from') or email_data.get('senderEmail', ''),
+            'subject': email_data.get('subject') or email_data.get('subjectLine', ''),
+            'receivedDateTime': email_data.get('receivedDateTime', ''),
+            'content': email_data.get('body') or email_data.get('content') or email_data.get('emailContent', '')
+        },
         
         # Attachments
         'hasAttachments': email_data.get('hasAttachments', False),
@@ -683,20 +676,6 @@ def build_universal_payload(email_data, routing):
         'conversationId': email_data.get('conversationId', ''),
         'receivedDateTime': email_data.get('receivedDateTime', ''),
         'source': email_data.get('source', 'email'),
-        
-        # Clarify/Confirm-specific
-        'clarifyType': routing.get('clarifyType'),
-        'possibleJobs': routing.get('possibleJobs'),
-        'jobs': routing.get('jobs'),
-        'suggestedJob': routing.get('suggestedJob'),
-        'originalIntent': routing.get('originalIntent'),
-        
-        # Redirect-specific
-        'redirectTo': routing.get('redirectTo'),
-        'redirectParams': routing.get('redirectParams'),
-        
-        # Hub-specific
-        'nextPrompt': routing.get('nextPrompt'),
     }
 
 
