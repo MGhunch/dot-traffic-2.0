@@ -428,6 +428,7 @@ def enrich_with_project(routing, project):
     routing['currentStage'] = project['stage']
     routing['currentStatus'] = project['status']
     routing['withClient'] = project['withClient']
+    routing['filesUrl'] = project.get('filesUrl', '')
     return routing
 
 
@@ -652,6 +653,7 @@ def build_universal_payload(email_data, routing):
         'currentStage': routing.get('currentStage'),
         'currentStatus': routing.get('currentStatus'),
         'withClient': routing.get('withClient'),
+        'filesUrl': routing.get('filesUrl'),
         
         # Sender (accept both PA names and our names)
         'senderName': email_data.get('senderName', ''),

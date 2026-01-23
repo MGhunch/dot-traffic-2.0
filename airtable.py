@@ -242,7 +242,8 @@ def get_project(job_number):
             'round': fields.get('Round', 0) or 0,
             'withClient': fields.get('With Client?', False),
             'teamsChannelId': fields.get('Teams Channel ID', None),
-            'teamId': team_id
+            'teamId': team_id,
+            'filesUrl': fields.get('Files URL', ''),
         }
         
     except Exception as e:
