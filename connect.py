@@ -3,6 +3,7 @@ Dot Traffic 2.0 - Connect
 Route registry, email templates, downstream calls to workers and PA Postman
 
 Updated: Added salutations, fixed logo ratio, new copy, send_answer(), send_redirect(), send_not_built()
+Updated: Enabled update/feedback/work-to-client routes pointing to dot-update worker
 """
 
 import os
@@ -34,8 +35,8 @@ ROUTES = {
         "friendly_name": "File",
     },
     "update": {
-        "endpoint": "https://dot-update.up.railway.app/process",
-        "status": "not_built",
+        "endpoint": "https://dot-update.up.railway.app/update",
+        "status": "testing",  # CHANGED: was not_built, endpoint was /process
         "friendly_name": "Update",
     },
     "triage": {
@@ -64,13 +65,13 @@ ROUTES = {
         "friendly_name": "Tracker",
     },
     "work-to-client": {
-        "endpoint": "https://dot-update.up.railway.app/process",
-        "status": "not_built",
+        "endpoint": "https://dot-update.up.railway.app/update",  # CHANGED: same as update
+        "status": "testing",  # CHANGED: was not_built
         "friendly_name": "Work to Client",
     },
     "feedback": {
-        "endpoint": "https://dot-update.up.railway.app/process",
-        "status": "not_built",
+        "endpoint": "https://dot-update.up.railway.app/update",  # CHANGED: same as update
+        "status": "testing",  # CHANGED: was not_built
         "friendly_name": "Feedback",
     },
     "clarify": {
@@ -130,7 +131,7 @@ def _success_box(title, subtitle):
         <tr>
           <td width="28" style="vertical-align: top; padding-right: 12px;">
             <div style="width: 24px; height: 24px; background: #22c55e; border-radius: 50%; text-align: center; line-height: 24px;">
-              <span style="color: white; font-size: 14px;">âœ“</span>
+              <span style="color: white; font-size: 14px;">✔</span>
             </div>
           </td>
           <td style="vertical-align: top;">
@@ -153,7 +154,7 @@ def _failure_box(title, subtitle):
         <tr>
           <td width="28" style="vertical-align: top; padding-right: 12px;">
             <div style="width: 24px; height: 24px; background: #ef4444; border-radius: 50%; text-align: center; line-height: 24px;">
-              <span style="color: white; font-size: 14px;">âœ•</span>
+              <span style="color: white; font-size: 14px;">✕</span>
             </div>
           </td>
           <td style="vertical-align: top;">
@@ -508,7 +509,7 @@ def send_confirmation(to_email, route, sender_name=None, client_name=None, job_n
     # Build files link if available
     files_link = ''
     if files_url:
-        files_link = f'<p style="margin: 0 0 24px 0;"><a href="{files_url}" style="color: #ED1C24; text-decoration: none; font-weight: 500;">See the files â†’</a></p>'
+        files_link = f'<p style="margin: 0 0 24px 0;"><a href="{files_url}" style="color: #ED1C24; text-decoration: none; font-weight: 500;">See the files →</a></p>'
     
     # Build email content
     content = f"""<p style="margin: 0 0 20px 0;">Hey {first_name},</p>
@@ -781,10 +782,10 @@ def send_redirect(to_email, message, sender_name=None, subject_line=None,
     # Choose message based on redirect type
     if redirect_to_lower == 'tracker':
         default_message = "Gosh, that's getting into more detail than I'm good at. You should find everything you need in the Tracker."
-        link_text = f"Open Tracker for {display_name} â†’" if display_name else "Open Tracker â†’"
+        link_text = f"Open Tracker for {display_name} →" if display_name else "Open Tracker →"
     else:
         default_message = "That's getting into the detail more than I'm good at. You should find everything you need in the WIP."
-        link_text = f"Open {display_name} WIP â†’" if display_name else "Open WIP â†’"
+        link_text = f"Open {display_name} WIP →" if display_name else "Open WIP →"
     
     # Use provided message or default
     display_message = message if message else default_message

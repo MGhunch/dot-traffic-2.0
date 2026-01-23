@@ -11,6 +11,9 @@ FLOW:
 5. Route response based on source (email -> workers, hub -> frontend)
 
 NOTE: Card updates (job modal) are now handled by Hub directly.
+
+UPDATED: Added file-first orchestration - if email has attachments + job number,
+         file them BEFORE calling the route's worker.
 """
 
 from flask import Flask, request, jsonify
@@ -34,14 +37,15 @@ def health():
     return jsonify({
         'status': 'healthy',
         'service': 'Dot Traffic',
-        'version': '2.3',
+        'version': '2.4',  # Bumped version for file-first orchestration
         'architecture': 'claude-first',
         'features': [
             'deduplication',
             'clarify-loop',
             'universal-payload',
             'route-registry',
-            'smart-client-detection'
+            'smart-client-detection',
+            'file-first-orchestration'  # NEW
         ]
     })
 
@@ -234,11 +238,25 @@ def handle_traffic():
         # STEP 9: CALL DOWNSTREAM (source-aware)
         # ===================
         worker_result = None
+        file_result = None
         
         if response_type == 'action':
             if source == 'email':
-                # Route to worker
+                # ===================
+                # FILE-FIRST ORCHESTRATION (NEW)
+                # ===================
+                # If there are attachments AND we have a job number, file them first
+                if has_attachments and routing.get('jobNumber'):
+                    print(f"[app] Filing attachments first for {routing.get('jobNumber')}")
+                    file_result = connect.call_worker('file', payload)
+                    print(f"[app] File result: success={file_result.get('success')}")
+                
+                # Then call the route's worker
                 worker_result = connect.call_worker(route, payload)
+                
+                # Include file result if we filed
+                if file_result:
+                    worker_result['fileResult'] = file_result
             else:
                 # Hub - don't call workers, return for user to act on
                 # (e.g., show job card for them to update themselves)
@@ -381,6 +399,7 @@ def handle_traffic():
             'redirectParams': routing.get('redirectParams'),
             'nextPrompt': routing.get('nextPrompt'),
             'worker': worker_result,
+            'fileResult': file_result,  # NEW: Include file result in response
             'confirmation': confirmation_result,
             'payload': payload
         })
@@ -497,7 +516,18 @@ def handle_clarify_reply(data, pending_clarify):
             routing['clientCode'] = reply_job_number.split()[0]
             
             payload = build_universal_payload(data, routing)
+            
+            # FILE-FIRST: Check for attachments before calling update
+            file_result = None
+            has_attachments = data.get('hasAttachments', False)
+            if has_attachments and reply_job_number:
+                print(f"[app] Filing attachments (clarify reply) for {reply_job_number}")
+                file_result = connect.call_worker('file', payload)
+            
             worker_result = connect.call_worker('update', payload)
+            
+            if file_result:
+                worker_result['fileResult'] = file_result
             
             return {
                 'route': 'update',
@@ -505,6 +535,7 @@ def handle_clarify_reply(data, pending_clarify):
                 'reason': 'Job number provided in clarify reply',
                 'jobNumber': reply_job_number,
                 'worker': worker_result,
+                'fileResult': file_result,
                 'payload': payload
             }
         else:
@@ -558,7 +589,18 @@ def handle_clarify_reply(data, pending_clarify):
                 routing['clientCode'] = suggested_job.split()[0]
                 
                 payload = build_universal_payload(data, routing)
+                
+                # FILE-FIRST: Check for attachments before calling update
+                file_result = None
+                has_attachments = data.get('hasAttachments', False)
+                if has_attachments and suggested_job:
+                    print(f"[app] Filing attachments (clarify confirm) for {suggested_job}")
+                    file_result = connect.call_worker('file', payload)
+                
                 worker_result = connect.call_worker('update', payload)
+                
+                if file_result:
+                    worker_result['fileResult'] = file_result
                 
                 return {
                     'route': 'update',
@@ -566,6 +608,7 @@ def handle_clarify_reply(data, pending_clarify):
                     'reason': 'User confirmed suggested job',
                     'jobNumber': suggested_job,
                     'worker': worker_result,
+                    'fileResult': file_result,
                     'payload': payload
                 }
     
