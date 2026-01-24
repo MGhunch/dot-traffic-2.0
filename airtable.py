@@ -289,7 +289,7 @@ def get_project(job_number):
             'withClient': fields.get('With Client?', False),
             'teamsChannelId': fields.get('Teams Channel ID', None),
             'teamId': team_id,
-            'filesUrl': fields.get('Files URL', ''),
+            'filesUrl': fields.get('Files Url', ''),
         }
         
     except Exception as e:
@@ -542,7 +542,7 @@ def get_job_by_number(job_number):
             'daysSinceUpdate': fields.get('Days Since Update', '-'),
             'teamsChannelId': fields.get('Teams Channel ID', ''),
             'teamId': team_id,
-            'filesUrl': fields.get('Files URL', ''),
+            'filesUrl': fields.get('Files Url', ''),
         }
         
     except Exception as e:
