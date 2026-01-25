@@ -136,7 +136,43 @@ def clear_session():
 
 
 # ===================
-# MAIN TRAFFIC ENDPOINT
+# HUB ENDPOINT (Simple Claude - Fast)
+# ===================
+
+@app.route('/hub', methods=['POST'])
+def handle_hub():
+    """
+    Fast path for Hub requests.
+    Simple Claude - no tools, jobs in context.
+    ~2-3 seconds vs ~8 seconds for full traffic.
+    """
+    try:
+        import hub
+        data = request.get_json()
+        
+        # Validate
+        content = data.get('content', '')
+        if not content:
+            return jsonify({'error': 'No content provided'}), 400
+        
+        # Simple Claude handles it
+        result = hub.handle_hub_request(data)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"[app] Hub error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'type': 'answer',
+            'message': "Sorry, I got in a muddle over that one.",
+            'jobs': None
+        }), 500
+
+
+# ===================
+# MAIN TRAFFIC ENDPOINT (Full Claude - Email)
 # ===================
 
 @app.route('/traffic', methods=['POST'])
@@ -225,8 +261,7 @@ def handle_traffic():
         print(f"[app] Subject: {subject}")
         print(f"[app] Sender: {sender_email}")
         
-        active_jobs = data.get('jobs', [])
-        routing = traffic.route_request(data, active_jobs=active_jobs)
+        routing = traffic.route_request(data)
         
         print(f"[app] Type: {routing.get('type')}")
         print(f"[app] Route: {routing.get('route')}")
