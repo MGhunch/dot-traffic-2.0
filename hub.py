@@ -8,6 +8,7 @@ SIMPLE CLAUDE:
 - Answers job questions directly
 - Redirects spend/people gracefully
 - Fast (~2-3 seconds)
+- Maintains conversation history for context
 
 IMPORTANT: Claude returns job NUMBERS, not full objects.
 Frontend matches job numbers to full objects from state.allJobs.
@@ -110,9 +111,10 @@ def handle_hub_request(data):
     """
     Handle a Hub chat request with Simple Claude.
     No tools - just jobs in context (summary format).
+    Maintains conversation history for multi-turn context.
     
     Args:
-        data: dict with content, jobs, senderName, sessionId
+        data: dict with content, jobs, senderName, sessionId, history
     
     Returns:
         dict with type, message, jobs (as job numbers), redirectTo, etc.
@@ -120,20 +122,36 @@ def handle_hub_request(data):
     content = data.get('content', '')
     jobs = data.get('jobs', [])
     sender_name = data.get('senderName', 'there')
+    history = data.get('history', [])  # Conversation history from frontend
     
     print(f"[hub] === SIMPLE CLAUDE ===")
     print(f"[hub] Question: {content}")
     print(f"[hub] Jobs in context: {len(jobs)}")
+    print(f"[hub] History messages: {len(history)}")
     
     # Build context with jobs (summary only - NOT full JSON)
     jobs_context = _format_jobs_for_context(jobs)
     
-    full_content = f"""User: {sender_name}
+    # Current message with fresh job data
+    current_message = f"""User: {sender_name}
 Question: {content}
 
 === ACTIVE JOBS ===
 {jobs_context}
 """
+    
+    # Build messages array: history + current message
+    messages = []
+    
+    # Add conversation history (without job context - keeps tokens down)
+    for msg in history:
+        role = msg.get('role', 'user')
+        msg_content = msg.get('content', '')
+        if role in ['user', 'assistant'] and msg_content:
+            messages.append({'role': role, 'content': msg_content})
+    
+    # Add current message with fresh job context
+    messages.append({'role': 'user', 'content': current_message})
     
     try:
         response = anthropic_client.messages.create(
@@ -141,7 +159,7 @@ Question: {content}
             max_tokens=1500,
             temperature=0.1,
             system=HUB_PROMPT,
-            messages=[{'role': 'user', 'content': full_content}]
+            messages=messages
         )
         
         result_text = response.content[0].text
