@@ -3,11 +3,14 @@ Dot Hub Brain - Simple Claude
 Fast path for Hub requests. No tools, jobs in context.
 
 SIMPLE CLAUDE:
-- Has all jobs in context
+- Has all jobs in context (summary format for speed)
 - No tools to call
 - Answers job questions directly
 - Redirects spend/people gracefully
 - Fast (~2-3 seconds)
+
+IMPORTANT: Claude returns job NUMBERS, not full objects.
+Frontend matches job numbers to full objects from state.allJobs.
 """
 
 import os
@@ -49,21 +52,52 @@ def _strip_markdown_json(content):
 
 
 def _format_jobs_for_context(jobs):
-    """Format jobs list for Claude's context"""
+    """
+    Format jobs list for Claude's context.
+    Compact format to minimize tokens while giving Claude what it needs.
+    """
     if not jobs:
-        return "No active jobs provided."
+        return "No active jobs."
     
     lines = []
     for job in jobs:
-        line = f"- {job.get('jobNumber', '???')} | {job.get('jobName', 'Untitled')}"
-        line += f" | {job.get('stage', '?')} | {job.get('status', '?')}"
+        # Core identifiers
+        parts = [
+            job.get('jobNumber', '???'),
+            job.get('jobName', 'Untitled'),
+            job.get('clientCode', '?'),
+        ]
+        
+        # Status info
+        stage = job.get('stage', '')
+        status = job.get('status', '')
+        if stage:
+            parts.append(stage)
+        if status and status != 'In Progress':
+            parts.append(status)
+        
+        # With client flag
         if job.get('withClient'):
-            line += " | WITH CLIENT"
+            parts.append('WITH CLIENT')
+        
+        # Dates
         if job.get('updateDue'):
-            line += f" | Due: {job.get('updateDue')}"
-        if job.get('update'):
-            line += f" | Latest: {job.get('update')[:50]}..."
-        lines.append(line)
+            parts.append(f"Due:{job.get('updateDue')}")
+        if job.get('liveDate'):
+            parts.append(f"Live:{job.get('liveDate')}")
+        
+        # Days since update
+        days_since = job.get('daysSinceUpdate', '')
+        if days_since and days_since != '-':
+            parts.append(f"({days_since})")
+        
+        # Latest update (truncated)
+        update = job.get('update', '')
+        if update:
+            update_short = update[:60] + '...' if len(update) > 60 else update
+            parts.append(f'"{update_short}"')
+        
+        lines.append(' | '.join(parts))
     
     return f"{len(jobs)} active jobs:\n" + "\n".join(lines)
 
@@ -75,13 +109,13 @@ def _format_jobs_for_context(jobs):
 def handle_hub_request(data):
     """
     Handle a Hub chat request with Simple Claude.
-    No tools - just jobs in context.
+    No tools - just jobs in context (summary format).
     
     Args:
         data: dict with content, jobs, senderName, sessionId
     
     Returns:
-        dict with type, message, jobs, redirectTo, etc.
+        dict with type, message, jobs (as job numbers), redirectTo, etc.
     """
     content = data.get('content', '')
     jobs = data.get('jobs', [])
@@ -91,20 +125,14 @@ def handle_hub_request(data):
     print(f"[hub] Question: {content}")
     print(f"[hub] Jobs in context: {len(jobs)}")
     
-    # Build context with jobs
+    # Build context with jobs (summary only - NOT full JSON)
     jobs_context = _format_jobs_for_context(jobs)
-    
-    # Also include full job data as JSON for Claude to reference
-    jobs_json = json.dumps(jobs, indent=2) if jobs else "[]"
     
     full_content = f"""User: {sender_name}
 Question: {content}
 
-=== ACTIVE JOBS (Summary) ===
+=== ACTIVE JOBS ===
 {jobs_context}
-
-=== ACTIVE JOBS (Full Data) ===
-{jobs_json}
 """
     
     try:
@@ -123,6 +151,8 @@ Question: {content}
         
         print(f"[hub] Type: {result.get('type')}")
         print(f"[hub] Message: {result.get('message', '')[:50]}...")
+        if result.get('jobs'):
+            print(f"[hub] Jobs returned: {result.get('jobs')}")
         
         return result
         
