@@ -225,7 +225,8 @@ def handle_traffic():
         print(f"[app] Subject: {subject}")
         print(f"[app] Sender: {sender_email}")
         
-        routing = traffic.route_request(data)
+        active_jobs = data.get('jobs', [])
+        routing = traffic.route_request(data, active_jobs=active_jobs)
         
         print(f"[app] Type: {routing.get('type')}")
         print(f"[app] Route: {routing.get('route')}")
