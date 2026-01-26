@@ -107,12 +107,23 @@ def handle_tool_call(tool_name: str, tool_input: dict) -> str:
 # ===================
 
 def _strip_markdown_json(content):
-    """Strip markdown code blocks from Claude's JSON response"""
+    """Strip markdown code blocks and preamble text from Claude's JSON response"""
     content = content.strip()
+    
+    # Handle markdown code blocks
     if content.startswith('```'):
         content = content.split('\n', 1)[1] if '\n' in content else content[3:]
     if content.endswith('```'):
         content = content.rsplit('```', 1)[0]
+    
+    # Find JSON object if there's preamble text
+    # Look for first { and last }
+    first_brace = content.find('{')
+    last_brace = content.rfind('}')
+    
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        content = content[first_brace:last_brace + 1]
+    
     return content.strip()
 
 
