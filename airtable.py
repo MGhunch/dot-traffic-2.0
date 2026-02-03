@@ -783,29 +783,14 @@ def _parse_meeting_datetime(dt_str):
 
 def get_meetings():
     """
-    Get meetings for today and next workday.
-    Returns: {'today': [...], 'next': [...]}
+    Get all meetings from table.
+    Meetingbot keeps the table curated to ~1 week ahead, so we pull everything.
+    Returns list of meetings sorted by date/time.
     """
     if not AIRTABLE_API_KEY:
-        return {'today': [], 'next': []}
+        return []
     
     try:
-        from datetime import timedelta
-        from zoneinfo import ZoneInfo
-        
-        today = datetime.now(ZoneInfo('Pacific/Auckland')).date()
-        weekday = today.weekday()
-        
-        # Next workday: Mon-Thu → tomorrow, Fri-Sun → Monday
-        if weekday == 4:
-            next_day = today + timedelta(days=3)
-        elif weekday == 5:
-            next_day = today + timedelta(days=2)
-        elif weekday == 6:
-            next_day = today + timedelta(days=1)
-        else:
-            next_day = today + timedelta(days=1)
-        
         response = httpx.get(
             _url(MEETINGS_TABLE),
             headers=_headers(),
@@ -813,8 +798,7 @@ def get_meetings():
         )
         response.raise_for_status()
         
-        today_meetings = []
-        next_meetings = []
+        meetings = []
         
         for record in response.json().get('records', []):
             fields = record.get('fields', {})
@@ -829,6 +813,8 @@ def get_meetings():
             
             meeting = {
                 'title': fields.get('Title', ''),
+                'day': fields.get('Day', ''),  # "Today", "Tomorrow", "Thursday", etc.
+                'date': meeting_date.isoformat(),
                 'startTime': start_time,
                 'endTime': end_time,
                 'location': fields.get('Location', ''),
@@ -836,16 +822,13 @@ def get_meetings():
                 'attendees': fields.get("Who's going", ''),
             }
             
-            if meeting_date == today:
-                today_meetings.append(meeting)
-            elif meeting_date == next_day:
-                next_meetings.append(meeting)
+            meetings.append(meeting)
         
-        today_meetings.sort(key=lambda x: x.get('startTime', ''))
-        next_meetings.sort(key=lambda x: x.get('startTime', ''))
+        # Sort by date then time
+        meetings.sort(key=lambda x: (x.get('date', ''), x.get('startTime', '')))
         
-        return {'today': today_meetings, 'next': next_meetings}
+        return meetings
     
     except Exception as e:
         print(f"[airtable] Error fetching meetings: {e}")
-        return {'today': [], 'next': []}
+        return []
