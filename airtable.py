@@ -331,7 +331,7 @@ def get_active_jobs(client_code):
             job_number = fields.get('Job Number', '')
             
             # Get update from rollup first (source of truth), fallback to text field
-            latest_update = fields.get('Update Summary', '') or fields.get('Update', '')
+            latest_update = fields.get('Update History', '') or fields.get('Update', '')
             
             # Parse update history (field name is 'Update History')
             update_history_raw = fields.get('Update History', []) or fields.get('Update history', [])
@@ -415,7 +415,7 @@ def get_all_active_jobs():
             job_number = fields.get('Job Number', '')
             
             # Get update from rollup first (source of truth), fallback to text field
-            latest_update = fields.get('Update Summary', '') or fields.get('Update', '')
+            latest_update = fields.get('Update History', '') or fields.get('Update', '')
             
             # Parse update history (field name is 'Update History')
             update_history_raw = fields.get('Update History', []) or fields.get('Update history', [])
@@ -502,7 +502,7 @@ def get_job_by_number(job_number):
         fields = records[0].get('fields', {})
         
         # Get update from rollup first (source of truth), fallback to text field
-        latest_update = fields.get('Update Summary', '') or fields.get('Update', '')
+        latest_update = fields.get('Update History', '') or fields.get('Update', '')
         
         # Parse update history (field name is 'Update History')
         update_history_raw = fields.get('Update History', []) or fields.get('Update history', [])
