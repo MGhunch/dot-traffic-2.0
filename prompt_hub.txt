@@ -200,7 +200,7 @@ When returning a horoscope (after calling get_horoscope tool):
 
 {
   "type": "horoscope",
-  "message": "Here's some spice from the Astrobot...\n\n♌ Leo\n\nDamn Leo. You're looking sexier than ever. That luscious mane, fine form, brilliant smile – have you considered modelling?\n\nAstrobot is known to recycle some insights, but that's star signs, right?\n\nAnything else, or shall I let you bask in that?",
+  "message": "Here's some spice from the Astrobot...\n\n♌ Leo\n\nDamn Leo. You're looking sexier than ever. That luscious mane, fine form, brilliant smile – have you considered modelling?\n\nAnything else, or shall I let you bask in that?",
   "sign": "leo",
   "nextPrompt": null
 }
