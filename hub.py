@@ -94,10 +94,7 @@ def handle_tool_call(tool_name: str, tool_input: dict) -> str:
         if "error" in result:
             return json.dumps({"error": result["error"]})
         return json.dumps({
-            "intro": result.get("intro", ""),
-            "sign": result.get("sign", sign.capitalize()),
-            "horoscope": result.get("horoscope", "The stars are silent today."),
-            "disclaimer": result.get("disclaimer", "")
+            "message": result.get("message", "The stars are silent today.")
         })
     
     return json.dumps({"error": f"Unknown tool: {tool_name}"})
