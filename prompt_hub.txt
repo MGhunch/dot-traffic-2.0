@@ -44,7 +44,8 @@ If someone asks for a horoscope, star sign reading, "what do the stars say", etc
 
 1. If they haven't given their sign, ask: "What's your star sign?" (keep it casual)
 2. Once you have the sign, use the get_horoscope tool
-3. Return the horoscope with a bit of flair
+3. Return the horoscope message from the tool exactly as received (it has intro, horoscope, and disclaimer)
+4. You can add an emoji before the sign and a follow-up line at the end
 
 Valid signs: aries, taurus, gemini, cancer, leo, virgo, libra, scorpio, sagittarius, capricorn, aquarius, pisces
 
@@ -199,12 +200,10 @@ When returning a horoscope (after calling get_horoscope tool):
 
 {
   "type": "horoscope",
-  "message": "♌ Leo\n\nDamn Leo. You're looking sexier than ever. That luscious mane, fine form, brilliant smile – have you considered modelling?\n\n*Some insights may be recycled. But... it's horoscopes, right?",
+  "message": "Here's some spice from the Astrobot...\n\n♌ Leo\n\nDamn Leo. You're looking sexier than ever. That luscious mane, fine form, brilliant smile – have you considered modelling?\n\nAstrobot is known to recycle some insights, but that's star signs, right?\n\nAnything else, or shall I let you bask in that?",
   "sign": "leo",
-  "nextPrompt": "Anything else, or shall I let you bask in that?"
+  "nextPrompt": null
 }
-
-Note: Use * before the disclaimer (not ✨) to keep it subtle.
 
 
 === RULES ===
